@@ -4,8 +4,16 @@ import { createBrowserRouter } from 'react-router-dom';
 import type { TemplatePageLoaderData } from './pages/template-page/template-page';
 import type { TemplatesPageLoaderData } from './pages/templates-page/templates-page';
 import { getTemplatesAndAllTags } from './templates-data/template-utils';
+import {
+    RequireAuth,
+    RequireAdmin,
+    RequirePasswordChanged,
+    RequirePublisher,
+} from './context/auth-context/auth-guards';
+import { LoginPage } from './pages/login-page/login-page';
+import { ChangePasswordPage } from './pages/change-password-page/change-password-page';
 
-const routes: RouteObject[] = [
+const applicationRoutes: RouteObject[] = [
     ...['', 'diagrams/:diagramId'].map((path) => ({
         path,
         async lazy() {
@@ -138,6 +146,56 @@ const routes: RouteObject[] = [
                 element: <NotFoundPage />,
             };
         },
+    },
+];
+
+const routes: RouteObject[] = [
+    { path: 'login', element: <LoginPage /> },
+    {
+        element: <RequireAuth />,
+        children: [
+            { path: 'change-password', element: <ChangePasswordPage /> },
+            {
+                element: <RequirePasswordChanged />,
+                children: [
+                    ...applicationRoutes,
+                    {
+                        path: 'versions/:diagramId',
+                        async lazy() {
+                            const { VersionsPage } =
+                                await import('./pages/versions-page/versions-page');
+                            return { element: <VersionsPage /> };
+                        },
+                    },
+                    {
+                        element: <RequirePublisher />,
+                        children: [
+                            {
+                                path: 'tokens',
+                                async lazy() {
+                                    const { TokensPage } =
+                                        await import('./pages/tokens-page/tokens-page');
+                                    return { element: <TokensPage /> };
+                                },
+                            },
+                        ],
+                    },
+                    {
+                        element: <RequireAdmin />,
+                        children: [
+                            {
+                                path: 'admin',
+                                async lazy() {
+                                    const { AdminPage } =
+                                        await import('./pages/admin-page/admin-page');
+                                    return { element: <AdminPage /> };
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
     },
 ];
 

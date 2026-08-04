@@ -6,6 +6,7 @@ import { DiagramName } from './diagram-name';
 import { LastSaved } from './last-saved';
 import { LanguageNav } from './language-nav/language-nav';
 import { Menu } from './menu/menu';
+import { AccountMenu } from '@/components/account-menu/account-menu';
 
 export interface TopNavbarProps {}
 
@@ -50,6 +51,10 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
                 <LastSaved />
                 {renderStars()}
                 <LanguageNav />
+                <AccountMenu />
+            </div>
+            <div className="flex justify-end sm:hidden">
+                <AccountMenu />
             </div>
         </nav>
     );

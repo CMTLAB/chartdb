@@ -1,3 +1,8 @@
+map $http_x_forwarded_proto $chartdb_forwarded_proto {
+    default $http_x_forwarded_proto;
+    "" $scheme;
+}
+
 server {
     listen       80;
     listen  [::]:80;
@@ -5,44 +10,22 @@ server {
     location / {
         root   /usr/share/nginx/html;
         index  index.html index.htm;
-	    try_files  $uri $uri/ /index.html;
+        try_files  $uri $uri/ /index.html;
     }
 
-    # Shared team ERDs (index.json + one <slug>.json each), served from the volume the
-    # publish sidecar writes to. Fresh every request (no-store); a real 404 for anything
-    # not published yet.
-    location /shared/ {
-        alias  /srv/shared/;
-        default_type application/json;
+    location /api/ {
+        client_max_body_size 50m;
+        resolver 127.0.0.11 valid=10s;
+        set $access_server http://access-server:8788;
+        proxy_pass $access_server;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto $chartdb_forwarded_proto;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
         add_header Cache-Control "no-store" always;
-    }
-
-    # Publish page + write endpoint, reverse-proxied to the sidecar so everything
-    # is on this one port. The variable + resolver means nginx still starts when no
-    # publisher is running (e.g. bare `docker run`); /publish just 502s then.
-    location = /publish {
-        # Real schema diagrams easily exceed nginx's 1m default; allow big uploads.
-        client_max_body_size 50m;
-        resolver 127.0.0.11 valid=10s;
-        set $publisher http://publisher:8788;
-        proxy_pass $publisher;
-        proxy_set_header Host $host;
-    }
-
-    location = /unpublish {
-        resolver 127.0.0.11 valid=10s;
-        set $publisher http://publisher:8788;
-        proxy_pass $publisher;
-        proxy_set_header Host $host;
-    }
-
-    # CI auto-publish (raw smart-query metadata → diagram, server-side).
-    location = /publish-metadata {
-        client_max_body_size 50m;
-        resolver 127.0.0.11 valid=10s;
-        set $publisher_m http://publisher:8788;
-        proxy_pass $publisher_m;
-        proxy_set_header Host $host;
     }
 
     location /config.js {

@@ -1,185 +1,215 @@
+import { apiFetch } from './api';
 import { cloneDiagram } from './clone';
 import type { Diagram } from './domain/diagram';
 
-// Shared team ERDs served by the publish sidecar. The server exposes:
-//   /shared/index.json      -> [{ slug, name }, ...]
-//   /shared/<slug>.json     -> a ChartDB diagram export
-// Each is seeded into this browser's IndexedDB as a normal diagram (id `shared-<slug>`)
-// so it shows up in the "All Databases" list. A full page reload re-syncs to the latest;
-// if the server serves nothing, every step here no-ops and the app behaves normally.
+export const serverDiagramLocalId = (serverId: string) => `server-${serverId}`;
 
-export const SHARED_INDEX_URL = '/shared/index.json';
-export const sharedDiagramUrl = (slug: string) => `/shared/${slug}.json`;
-export const sharedDiagramId = (slug: string) => `shared-${slug}`;
+export const parseServerDiagramLocalId = (localId: string): string | null =>
+    localId.startsWith('server-') ? localId.slice('server-'.length) : null;
 
-const SLUGS_KEY = 'chartdb:sharedSlugs';
-const hashKey = (slug: string) => `chartdb:sharedHash:${slug}`;
+const manifestKey = (userId: string) => `chartdb:serverDiagrams:${userId}`;
 
-// FNV-1a — not cryptographic, only used to detect "this shared file changed".
-// ponytail: FNV-1a change-detection, swap for crypto.subtle only if collisions ever bite.
-export const computeHash = (text: string): string => {
-    let h = 0x811c9dc5;
-    for (let i = 0; i < text.length; i++) {
-        h ^= text.charCodeAt(i);
-        h = Math.imul(h, 0x01000193);
+interface ManifestEntry {
+    version: number;
+    syncedAt?: string;
+}
+
+const normalizeManifestEntry = (value: unknown): ManifestEntry | null => {
+    if (Number.isInteger(value)) {
+        return { version: value as number };
     }
-    return (h >>> 0).toString(16);
+    const entry = value as Partial<ManifestEntry> | null;
+    if (
+        !entry ||
+        !Number.isInteger(entry.version) ||
+        (entry.syncedAt !== undefined && typeof entry.syncedAt !== 'string')
+    ) {
+        return null;
+    }
+    return { version: entry.version as number, syncedAt: entry.syncedAt };
 };
 
-// Re-seed when the file changed, or when it matches but the diagram is gone from
-// IndexedDB (e.g. the viewer cleared site data while localStorage survived).
-export const shouldReseed = (
-    diagramExists: boolean,
-    storedHash: string | null,
-    newHash: string
-): boolean => !diagramExists || storedHash !== newHash;
-
-// Called right after the author publishes: records the just-published content as
-// already-seed so a reload doesn't reseed-overwrite the copy they keep editing, and
-// registers the slug so cleanup keeps it.
-export const markSharedSeeded = (slug: string, text: string): void => {
-    localStorage.setItem(hashKey(slug), computeHash(text));
-    let slugs: string[] = [];
+const readManifest = (userId: string): Record<string, ManifestEntry> => {
     try {
-        const stored = JSON.parse(localStorage.getItem(SLUGS_KEY) ?? '[]');
-        slugs = Array.isArray(stored) ? stored : [];
+        const value = JSON.parse(
+            localStorage.getItem(manifestKey(userId)) ?? '{}'
+        );
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return {};
+        }
+        return Object.fromEntries(
+            Object.entries(value).flatMap(([serverId, entry]) => {
+                const normalized = normalizeManifestEntry(entry);
+                return normalized ? [[serverId, normalized]] : [];
+            })
+        );
     } catch {
-        slugs = [];
-    }
-    if (!slugs.includes(slug)) {
-        slugs.push(slug);
-        localStorage.setItem(SLUGS_KEY, JSON.stringify(slugs));
+        return {};
     }
 };
 
-interface SeedDeps {
-    getDiagram: (id: string) => Promise<Diagram | undefined>;
+const writeManifest = (
+    userId: string,
+    manifest: Record<string, ManifestEntry>
+) => {
+    localStorage.setItem(manifestKey(userId), JSON.stringify(manifest));
+};
+
+export const markServerDiagramVersion = (
+    userId: string,
+    serverId: string,
+    version: number
+) => {
+    const manifest = readManifest(userId);
+    manifest[serverId] = { version, syncedAt: new Date().toISOString() };
+    writeManifest(userId, manifest);
+};
+
+interface DiagramLoadOptions {
+    includeTables?: boolean;
+    includeRelationships?: boolean;
+    includeDependencies?: boolean;
+    includeAreas?: boolean;
+    includeCustomTypes?: boolean;
+    includeNotes?: boolean;
+}
+
+interface SyncStorage {
+    getDiagram: (
+        id: string,
+        options?: DiagramLoadOptions
+    ) => Promise<Diagram | undefined>;
     addDiagram: (params: { diagram: Diagram }) => Promise<void>;
     deleteDiagram: (id: string) => Promise<void>;
 }
 
-interface IndexEntry {
-    slug: string;
-    name: string;
+interface SyncOptions extends SyncStorage {
+    userId: string;
 }
 
-const fetchText = async (url: string): Promise<string | null> => {
-    try {
-        const res = await fetch(url, { cache: 'no-store' });
-        if (!res.ok) {
-            return null;
-        }
-        return await res.text();
-    } catch {
-        return null;
-    }
+interface DiagramListItem {
+    id: string;
+    name: string;
+    currentVersion: number;
+}
+
+const fullDiagramOptions: DiagramLoadOptions = {
+    includeTables: true,
+    includeRelationships: true,
+    includeDependencies: true,
+    includeAreas: true,
+    includeCustomTypes: true,
+    includeNotes: true,
 };
 
-const seedOne = async (
-    { getDiagram, addDiagram, deleteDiagram }: SeedDeps,
-    entry: IndexEntry
-): Promise<void> => {
-    const text = await fetchText(sharedDiagramUrl(entry.slug));
-    if (text === null) {
-        return;
-    }
-
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(text);
-    } catch {
-        return;
-    }
-    // Trust the published export (the sidecar already checked it is diagram-shaped)
-    // rather than re-validating with the strict diagramSchema, which rejects values
-    // real ChartDB diagrams carry (e.g. Oracle's 'normal' index type).
-    const obj = parsed as Partial<Diagram>;
-    if (
-        typeof obj?.name !== 'string' ||
-        typeof obj?.databaseType !== 'string'
-    ) {
-        return;
-    }
-
-    const id = sharedDiagramId(entry.slug);
-    const hash = computeHash(text);
-    const existing = await getDiagram(id);
-    if (
-        !shouldReseed(
-            !!existing,
-            localStorage.getItem(hashKey(entry.slug)),
-            hash
-        )
-    ) {
-        return;
-    }
-
-    // Regenerate every internal id (tables/fields/indexes/relationships/...) so that
-    // shared diagrams — which share running ids like "1","2" in their exports — never
-    // collide with each other or with the user's own diagrams in the id-keyed stores.
-    const cloned = cloneDiagram(obj as Diagram).diagram;
-    if (existing) {
-        await deleteDiagram(id);
-    }
-    await addDiagram({
-        diagram: {
-            ...cloned,
-            id,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-        },
-    });
-    localStorage.setItem(hashKey(entry.slug), hash);
-};
-
-const doSeed = async (deps: SeedDeps): Promise<number> => {
-    const indexText = await fetchText(SHARED_INDEX_URL);
-    if (indexText === null) {
-        return 0;
-    }
-
-    let index: IndexEntry[];
-    try {
-        const parsed = JSON.parse(indexText);
-        index = Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return 0;
-    }
-    const entries = index.filter(
-        (e) => e && typeof e.slug === 'string' && typeof e.name === 'string'
+const isListItem = (value: unknown): value is DiagramListItem => {
+    const item = value as DiagramListItem;
+    return (
+        typeof item?.id === 'string' &&
+        typeof item?.name === 'string' &&
+        Number.isInteger(item?.currentVersion)
     );
+};
 
-    // Drop any shared diagram that was removed from the index server-side.
-    const currentSlugs = new Set(entries.map((e) => e.slug));
-    let knownSlugs: string[] = [];
+const isDiagram = (value: unknown): value is Diagram => {
+    const diagram = value as Diagram;
+    return (
+        typeof diagram?.id === 'string' &&
+        typeof diagram?.name === 'string' &&
+        typeof diagram?.databaseType === 'string' &&
+        Array.isArray(diagram?.tables) &&
+        Array.isArray(diagram?.relationships)
+    );
+};
+
+export const syncServerDiagrams = async ({
+    userId,
+    getDiagram,
+    addDiagram,
+    deleteDiagram,
+}: SyncOptions): Promise<number> => {
+    let list: { diagrams: unknown[] };
     try {
-        const stored = JSON.parse(localStorage.getItem(SLUGS_KEY) ?? '[]');
-        knownSlugs = Array.isArray(stored) ? stored : [];
+        list = await apiFetch<{ diagrams: unknown[] }>('/api/diagrams');
     } catch {
-        knownSlugs = [];
+        return 0;
     }
-    for (const slug of knownSlugs) {
-        if (!currentSlugs.has(slug)) {
-            await deps.deleteDiagram(sharedDiagramId(slug));
-            localStorage.removeItem(hashKey(slug));
+    const entries = Array.isArray(list.diagrams)
+        ? list.diagrams.filter(isListItem)
+        : [];
+    const previous = readManifest(userId);
+    const allowedIds = new Set(entries.map((entry) => entry.id));
+
+    for (const serverId of Object.keys(previous)) {
+        if (!allowedIds.has(serverId)) {
+            await deleteDiagram(serverDiagramLocalId(serverId));
         }
     }
 
+    const next: Record<string, ManifestEntry> = {};
     for (const entry of entries) {
-        await seedOne(deps, entry);
-    }
+        const localId = serverDiagramLocalId(entry.id);
+        const existing = await getDiagram(localId, fullDiagramOptions);
+        const previousEntry = previous[entry.id];
+        if (existing && previousEntry?.version === entry.currentVersion) {
+            next[entry.id] = previousEntry;
+            continue;
+        }
 
-    localStorage.setItem(SLUGS_KEY, JSON.stringify([...currentSlugs]));
+        try {
+            const response = await apiFetch<{
+                currentVersion: number;
+                diagram: unknown;
+            }>(`/api/diagrams/${entry.id}`);
+            if (!isDiagram(response.diagram)) {
+                if (existing && previousEntry) {
+                    next[entry.id] = previousEntry;
+                }
+                continue;
+            }
+            let backup: Diagram | undefined;
+            let locallyModified = false;
+            if (existing) {
+                const lastSync = previousEntry?.syncedAt
+                    ? Date.parse(previousEntry.syncedAt)
+                    : Number.NaN;
+                const lastUpdate = new Date(existing.updatedAt).getTime();
+                locallyModified =
+                    !Number.isFinite(lastSync) ||
+                    !Number.isFinite(lastUpdate) ||
+                    lastUpdate > lastSync;
+                backup = cloneDiagram(existing).diagram;
+                backup.name = `${existing.name} (Local backup)`;
+                await addDiagram({ diagram: backup });
+            }
+            const syncedAt = new Date().toISOString();
+            const cloned = cloneDiagram(response.diagram).diagram;
+            if (existing) await deleteDiagram(localId);
+            await addDiagram({
+                diagram: {
+                    ...cloned,
+                    id: localId,
+                    createdAt: new Date(),
+                    updatedAt: new Date(syncedAt),
+                },
+            });
+            if (backup && !locallyModified) {
+                try {
+                    await deleteDiagram(backup.id);
+                } catch {
+                    // ponytail: stale backup is safer than undoing a valid adopted cache.
+                }
+            }
+            next[entry.id] = {
+                version: response.currentVersion,
+                syncedAt,
+            };
+        } catch {
+            if (existing && previousEntry) {
+                next[entry.id] = previousEntry;
+            }
+        }
+    }
+    writeManifest(userId, next);
     return entries.length;
-};
-
-// Memoized: sync at most once per page load. New publishes are picked up on reload,
-// which is exactly the "reload to get the latest team ERDs" sharing model.
-let seedPromise: Promise<number> | null = null;
-
-export const seedSharedDiagrams = (deps: SeedDeps): Promise<number> => {
-    if (!seedPromise) {
-        seedPromise = doSeed(deps).catch(() => 0);
-    }
-    return seedPromise;
 };

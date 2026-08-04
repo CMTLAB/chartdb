@@ -5,15 +5,17 @@ import { useFullScreenLoader } from '@/hooks/use-full-screen-spinner';
 import { useRedoUndoStack } from '@/hooks/use-redo-undo-stack';
 import { useStorage } from '@/hooks/use-storage';
 import type { Diagram } from '@/lib/domain/diagram';
-import { seedSharedDiagrams } from '@/lib/shared-diagram';
+import { syncServerDiagrams } from '@/lib/shared-diagram';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '@/context/auth-context/auth-context';
 
 export const useDiagramLoader = () => {
+    const { user } = useAuth();
     const [initialDiagram, setInitialDiagram] = useState<Diagram | undefined>();
     const { diagramId } = useParams<{ diagramId: string }>();
     const { config } = useConfig();
-    const { loadDiagram, currentDiagram } = useChartDB();
+    const { loadDiagram, currentDiagram, readonly } = useChartDB();
     const { resetRedoStack, resetUndoStack } = useRedoUndoStack();
     const { showLoader, hideLoader } = useFullScreenLoader();
     const { openCreateDiagramDialog, openOpenDiagramDialog } = useDialog();
@@ -35,7 +37,8 @@ export const useDiagramLoader = () => {
         const loadDefaultDiagram = async () => {
             // Sync any shared team ERDs into the diagram list before the usual
             // open/create flow, so they show up in the picker below.
-            await seedSharedDiagrams({
+            await syncServerDiagrams({
+                userId: user!.id,
                 getDiagram,
                 addDiagram,
                 deleteDiagram,
@@ -69,7 +72,7 @@ export const useDiagramLoader = () => {
 
             if (diagrams.length > 0) {
                 openOpenDiagramDialog({ canClose: false });
-            } else {
+            } else if (!readonly) {
                 openCreateDiagramDialog();
             }
         };
@@ -99,6 +102,8 @@ export const useDiagramLoader = () => {
         getDiagram,
         addDiagram,
         deleteDiagram,
+        user,
+        readonly,
     ]);
 
     return { initialDiagram };

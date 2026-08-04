@@ -3,64 +3,121 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseType } from '@/lib/domain/database-type';
 import { usePublishDiagram } from './use-publish-diagram';
 
+const toast = vi.fn();
+const addDiagram = vi.fn();
+const deleteDiagram = vi.fn();
+const navigate = vi.fn();
+
 vi.mock('@/components/toast/use-toast', () => ({
-    useToast: () => ({ toast: vi.fn() }),
+    useToast: () => ({ toast }),
 }));
 vi.mock('@/hooks/use-storage', () => ({
-    useStorage: () => ({ addDiagram: vi.fn(), deleteDiagram: vi.fn() }),
+    useStorage: () => ({ addDiagram, deleteDiagram }),
+}));
+vi.mock('@/context/auth-context/auth-context', () => ({
+    useAuth: () => ({
+        user: {
+            id: 'publisher-id',
+            username: 'publisher',
+            role: 'PUBLISHER',
+        },
+    }),
 }));
 vi.mock('react-i18next', () => ({
     useTranslation: () => ({ i18n: { language: 'ko' } }),
 }));
 vi.mock('react-router-dom', () => ({
-    useNavigate: () => vi.fn(),
+    useNavigate: () => navigate,
 }));
+
+const localDiagram = {
+    id: 'local-diagram-1',
+    name: 'QUALYS',
+    databaseType: DatabaseType.ORACLE,
+    tables: [],
+    relationships: [],
+    dependencies: [],
+    areas: [],
+    customTypes: [],
+    notes: [],
+    createdAt: new Date('2026-08-04T00:00:00Z'),
+    updatedAt: new Date('2026-08-04T00:00:00Z'),
+};
 
 afterEach(() => {
     localStorage.clear();
+    toast.mockReset();
+    addDiagram.mockReset();
+    deleteDiagram.mockReset();
+    navigate.mockReset();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
 });
 
 describe('usePublishDiagram', () => {
-    it('asks for a fresh token for every publish without caching it', async () => {
-        localStorage.setItem('chartdb:publishToken', 'cached-token');
-        const prompt = vi
-            .spyOn(window, 'prompt')
-            .mockReturnValueOnce('token-one')
-            .mockReturnValueOnce('token-two');
+    it('creates a server diagram with the login session and never prompts for a global token', async () => {
+        const prompt = vi.spyOn(window, 'prompt');
         const fetchMock = vi.fn().mockResolvedValue({
             ok: true,
-            json: async () => ({}),
+            status: 201,
+            json: async () => ({ id: 'server-id', version: 1 }),
         });
         vi.stubGlobal('fetch', fetchMock);
-        const diagram = {
-            id: 'diagram-1',
-            name: 'QUALYS',
-            databaseType: DatabaseType.ORACLE,
-            tables: [],
-            relationships: [],
-            dependencies: [],
-            areas: [],
-            customTypes: [],
-            notes: [],
-            createdAt: new Date('2026-08-04T00:00:00Z'),
-            updatedAt: new Date('2026-08-04T00:00:00Z'),
-        };
         const { result } = renderHook(() => usePublishDiagram());
 
-        await act(async () => {
-            await result.current.publish(diagram);
-            await result.current.publish(diagram);
-        });
+        await act(async () => result.current.publish(localDiagram));
 
-        expect(prompt).toHaveBeenCalledTimes(2);
-        expect(fetchMock.mock.calls[0][1].headers['x-publish-token']).toBe(
-            'token-one'
+        expect(prompt).not.toHaveBeenCalled();
+        expect(fetchMock).toHaveBeenCalledWith(
+            '/api/diagrams',
+            expect.objectContaining({
+                method: 'POST',
+                credentials: 'same-origin',
+            })
         );
-        expect(fetchMock.mock.calls[1][1].headers['x-publish-token']).toBe(
-            'token-two'
+        expect(navigate).toHaveBeenCalledWith('/diagrams/server-server-id');
+    });
+
+    it('publishes a new version when the local diagram is server-backed', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 201,
+            json: async () => ({ id: 'server-id', version: 2 }),
+        });
+        vi.stubGlobal('fetch', fetchMock);
+        const { result } = renderHook(() => usePublishDiagram());
+
+        await act(async () =>
+            result.current.publish({
+                ...localDiagram,
+                id: 'server-server-id',
+            })
         );
-        expect(localStorage.getItem('chartdb:publishToken')).toBeNull();
+
+        expect(fetchMock).toHaveBeenCalledWith(
+            '/api/diagrams/server-id/versions',
+            expect.objectContaining({ method: 'POST' })
+        );
+        expect(addDiagram).not.toHaveBeenCalled();
+    });
+
+    it('does not mark a new server diagram before its local cache is adopted', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue({
+                ok: true,
+                status: 201,
+                json: async () => ({ id: 'server-id', version: 1 }),
+            })
+        );
+        addDiagram.mockRejectedValueOnce(new Error('quota'));
+        const { result } = renderHook(() => usePublishDiagram());
+
+        await act(async () => result.current.publish(localDiagram));
+
+        expect(
+            localStorage.getItem('chartdb:serverDiagrams:publisher-id')
+        ).toBeNull();
+        expect(deleteDiagram).not.toHaveBeenCalledWith(localDiagram.id);
     });
 });

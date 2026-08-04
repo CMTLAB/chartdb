@@ -7,13 +7,14 @@ import type { Diagram } from '@/lib/domain/diagram';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React, { useState } from 'react';
-import { expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import { OpenDiagramDialog } from './open-diagram-dialog';
 
 const mocks = vi.hoisted(() => ({
     listDiagrams: vi.fn(),
     navigate: vi.fn(),
     updateConfig: vi.fn(),
+    readonly: false,
 }));
 
 vi.mock('react-i18next', () => ({
@@ -34,6 +35,10 @@ vi.mock('@/hooks/use-storage', () => ({
     }),
 }));
 
+vi.mock('@/hooks/use-chartdb', () => ({
+    useChartDB: () => ({ readonly: mocks.readonly }),
+}));
+
 vi.mock('@/components/diagram-icon/diagram-icon', () => ({
     DiagramIcon: () => <span />,
 }));
@@ -43,6 +48,13 @@ vi.mock('./diagram-row-actions-menu/diagram-row-actions-menu', () => ({
 }));
 
 const noOp = () => undefined;
+
+beforeEach(() => {
+    mocks.readonly = false;
+    mocks.listDiagrams.mockReset();
+    mocks.navigate.mockReset();
+    mocks.updateConfig.mockReset();
+});
 
 const MandatoryOpenDialog = () => {
     const [open, setOpen] = useState(true);
@@ -102,4 +114,18 @@ test('closes the mandatory picker after opening the selected diagram', async () 
     await waitFor(() =>
         expect(screen.queryByText('Shared Demo')).not.toBeInTheDocument()
     );
+});
+
+test('hides local diagram creation in readonly mode', async () => {
+    mocks.readonly = true;
+    mocks.listDiagrams.mockResolvedValue([]);
+
+    render(<MandatoryOpenDialog />);
+
+    await waitFor(() => expect(mocks.listDiagrams).toHaveBeenCalled());
+    expect(
+        screen.queryByRole('button', {
+            name: 'open_diagram_dialog.new_database',
+        })
+    ).not.toBeInTheDocument();
 });
