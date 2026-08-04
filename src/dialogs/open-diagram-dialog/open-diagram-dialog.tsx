@@ -269,9 +269,10 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                             <Button
                                 type="submit"
                                 disabled={!selectedDiagramId}
-                                onClick={() =>
-                                    openDiagram(selectedDiagramId ?? '')
-                                }
+                                onClick={() => {
+                                    openDiagram(selectedDiagramId ?? '');
+                                    closeOpenDiagramDialog();
+                                }}
                             >
                                 {t('open_diagram_dialog.open')}
                             </Button>

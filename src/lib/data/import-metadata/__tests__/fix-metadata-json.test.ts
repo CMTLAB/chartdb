@@ -327,6 +327,29 @@ describe('fixMetadataJson', () => {
             const parsed = JSON.parse(result);
             expect(parsed.database_name).toBe('test_db');
         });
+
+        it('should extract IntelliJ JSON export with an uppercase column name', () => {
+            const metadata = {
+                fk_info: [],
+                pk_info: [],
+                columns: [],
+                indexes: [],
+                tables: [],
+                views: [],
+                database_name: 'qualys',
+                version: '19c',
+            };
+            const input = JSON.stringify([
+                {
+                    METADATA_JSON_TO_IMPORT: JSON.stringify(metadata),
+                },
+            ]);
+
+            const result = fixMetadataJson(input);
+
+            expect(isStringMetadataJson(result)).toBe(true);
+            expect(JSON.parse(result).database_name).toBe('qualys');
+        });
     });
 
     describe('edge cases', () => {
@@ -371,6 +394,31 @@ describe('isStringMetadataJson', () => {
         });
 
         expect(isStringMetadataJson(validMetadata)).toBe(true);
+    });
+
+    it('accepts Oracle table metadata with a null comment', () => {
+        const metadata = JSON.stringify({
+            fk_info: [],
+            pk_info: [],
+            columns: [],
+            indexes: [],
+            tables: [
+                {
+                    schema: 'CLO_QUALYS',
+                    table: 'CL_CR_ACCOUNT',
+                    rows: 0,
+                    type: 'TABLE',
+                    engine: '',
+                    collation: '',
+                    comment: null,
+                },
+            ],
+            views: [],
+            database_name: 'FREEPDB1',
+            version: 'FREEPDB1',
+        });
+
+        expect(isStringMetadataJson(metadata)).toBe(true);
     });
 
     it('should return false for invalid JSON string', () => {

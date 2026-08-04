@@ -52,6 +52,7 @@ import {
     clearErrorHighlight,
     highlightErrorLine,
 } from '@/components/code-snippet/dbml/utils';
+import { Upload } from 'lucide-react';
 
 const calculateContentSizeMB = (content: string): number => {
     return content.length / (1024 * 1024); // Convert to MB
@@ -64,6 +65,7 @@ const calculateIsLargeFile = (content: string): boolean => {
 
 const errorScriptOutputMessage =
     'Invalid JSON. Please correct it or contact us at support@chartdb.io for help.';
+const errorFileReadMessage = 'Unable to read the selected file.';
 
 export interface ImportDatabaseProps {
     goBack?: () => void;
@@ -100,6 +102,10 @@ export const ImportDatabase: React.FC<ImportDatabaseProps> = ({
 }) => {
     const { effectiveTheme } = useTheme();
     const [errorMessage, setErrorMessage] = useState('');
+    const [selectedFileName, setSelectedFileName] = useState<string | null>(
+        null
+    );
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
     const decorationsCollection = useRef<editor.IEditorDecorationsCollection>();
     const pasteDisposableRef = useRef<IDisposable | null>(null);
@@ -126,6 +132,7 @@ export const ImportDatabase: React.FC<ImportDatabaseProps> = ({
         setErrorMessage('');
         setShowCheckJsonButton(false);
         setJsonCheckAttempts(0);
+        setSelectedFileName(null);
     }, [importMethod, setScriptResult]);
 
     // Check if the ddl or dbml is valid
@@ -352,6 +359,31 @@ export const ImportDatabase: React.FC<ImportDatabaseProps> = ({
         [setScriptResult]
     );
 
+    const handleFileChange = useCallback(
+        async (event: React.ChangeEvent<HTMLInputElement>) => {
+            const input = event.currentTarget;
+            const file = input.files?.[0];
+            input.value = '';
+            if (!file) return;
+
+            try {
+                const fileContents = await file.text();
+                const fixedJson = fixMetadataJson(fileContents);
+                setScriptResult(
+                    fixedJson !== fileContents &&
+                        isStringMetadataJson(fixedJson)
+                        ? fixedJson
+                        : fileContents
+                );
+                setSelectedFileName(file.name);
+                setErrorMessage('');
+            } catch {
+                setErrorMessage(errorFileReadMessage);
+            }
+        },
+        [setScriptResult]
+    );
+
     const debouncedHandleInputChange = useDebounce(handleInputChange, 500);
 
     const handleCheckJson = useCallback(async () => {
@@ -487,13 +519,52 @@ export const ImportDatabase: React.FC<ImportDatabaseProps> = ({
     const renderOutputTextArea = useCallback(
         () => (
             <div className="flex size-full flex-col gap-1 overflow-hidden rounded-md border p-1">
-                <div className="w-full text-center text-xs text-muted-foreground">
-                    {importMethod === 'query'
-                        ? 'Smart Query Output'
-                        : importMethod === 'dbml'
-                          ? 'DBML Script'
-                          : 'SQL Script'}
+                <div className="flex w-full items-center justify-center text-xs text-muted-foreground">
+                    <span>
+                        {importMethod === 'query'
+                            ? 'Smart Query Output'
+                            : importMethod === 'dbml'
+                              ? 'DBML Script'
+                              : 'SQL Script'}
+                    </span>
                 </div>
+                {importMethod === 'query' ? (
+                    <div
+                        role="group"
+                        aria-label="Smart Query JSON file"
+                        className="flex items-center justify-between gap-3 rounded-md border bg-muted/40 p-3"
+                    >
+                        <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">
+                                {selectedFileName ?? 'Load JSON from a file'}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                                {selectedFileName
+                                    ? 'The file contents are loaded in the editor below.'
+                                    : 'Load a saved Smart Query JSON result.'}
+                            </p>
+                        </div>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".json,application/json"
+                            aria-label="Smart Query JSON file input"
+                            className="hidden"
+                            onChange={handleFileChange}
+                        />
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="shrink-0 gap-2"
+                            onClick={() => fileInputRef.current?.click()}
+                        >
+                            <Upload className="size-4" />
+                            {selectedFileName
+                                ? 'Choose another file'
+                                : 'Select JSON file'}
+                        </Button>
+                    </div>
+                ) : null}
                 <div className="flex-1 overflow-hidden">
                     <Suspense fallback={<Spinner />}>
                         <Editor
@@ -564,6 +635,8 @@ export const ImportDatabase: React.FC<ImportDatabaseProps> = ({
             effectiveTheme,
             debouncedHandleInputChange,
             handleEditorDidMount,
+            handleFileChange,
+            selectedFileName,
             sqlValidation,
             isAutoFixing,
             handleErrorClick,

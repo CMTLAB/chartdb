@@ -8,6 +8,43 @@ server {
 	    try_files  $uri $uri/ /index.html;
     }
 
+    # Shared team ERDs (index.json + one <slug>.json each), served from the volume the
+    # publish sidecar writes to. Fresh every request (no-store); a real 404 for anything
+    # not published yet.
+    location /shared/ {
+        alias  /srv/shared/;
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+    }
+
+    # Publish page + write endpoint, reverse-proxied to the sidecar so everything
+    # is on this one port. The variable + resolver means nginx still starts when no
+    # publisher is running (e.g. bare `docker run`); /publish just 502s then.
+    location = /publish {
+        # Real schema diagrams easily exceed nginx's 1m default; allow big uploads.
+        client_max_body_size 50m;
+        resolver 127.0.0.11 valid=10s;
+        set $publisher http://publisher:8788;
+        proxy_pass $publisher;
+        proxy_set_header Host $host;
+    }
+
+    location = /unpublish {
+        resolver 127.0.0.11 valid=10s;
+        set $publisher http://publisher:8788;
+        proxy_pass $publisher;
+        proxy_set_header Host $host;
+    }
+
+    # CI auto-publish (raw smart-query metadata → diagram, server-side).
+    location = /publish-metadata {
+        client_max_body_size 50m;
+        resolver 127.0.0.11 valid=10s;
+        set $publisher_m http://publisher:8788;
+        proxy_pass $publisher_m;
+        proxy_set_header Host $host;
+    }
+
     location /config.js {
         default_type application/javascript;
         return 200 "window.env = {

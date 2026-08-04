@@ -1,9 +1,11 @@
 export const oracleDBQuery = `----------------------------------------------------------------------------
 -- 1.  FOREIGN-KEY METADATA
 ----------------------------------------------------------------------------
+-- ponytail: USER_* assumes the login schema is the import target; restore
+-- ALL_* owner filters if proxy-user or ALTER SESSION imports are required.
 WITH fk_info AS (
 	SELECT JSON_OBJECT(
-	       KEY 'schema'            VALUE a.owner,
+	       KEY 'schema'            VALUE SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),
 	       KEY 'table'             VALUE a.table_name,
 	       KEY 'column'            VALUE b.column_name,
 	       KEY 'foreign_key_name'  VALUE a.constraint_name,
@@ -20,10 +22,9 @@ WITH fk_info AS (
 	                   'NO ACTION')
 	       RETURNING CLOB
 	     ) AS json_data
-	FROM   all_constraints     a
-	JOIN   all_cons_columns    b
-	     ON  b.owner = a.owner
-	    AND b.constraint_name = a.constraint_name
+	FROM   user_constraints    a
+	JOIN   user_cons_columns   b
+	     ON  b.constraint_name = a.constraint_name
 	JOIN   all_constraints     c
 	     ON  c.owner = a.r_owner
 	    AND c.constraint_name = a.r_constraint_name
@@ -32,7 +33,6 @@ WITH fk_info AS (
 	    AND d.constraint_name = c.constraint_name
 	    AND d.position        = b.position
 	WHERE  a.constraint_type = 'R'
-	AND    a.owner           = SYS_CONTEXT('USERENV','CURRENT_SCHEMA')
 	),
 
 	/* ==============================================================
@@ -40,7 +40,7 @@ WITH fk_info AS (
 	==============================================================*/
 	pk_info AS (
 	SELECT JSON_OBJECT(
-	       KEY 'schema' VALUE a.owner,
+	       KEY 'schema' VALUE SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),
 	       KEY 'table'  VALUE a.table_name,
 	       KEY 'column' VALUE LISTAGG(b.column_name, ', ')
 	                        WITHIN GROUP (ORDER BY b.position),
@@ -49,13 +49,11 @@ WITH fk_info AS (
 	                           WITHIN GROUP (ORDER BY b.position)||')'
 	       RETURNING CLOB
 	     ) AS json_data
-	FROM   all_constraints  a
-	JOIN   all_cons_columns b
-	     ON b.owner            = a.owner
-	    AND b.constraint_name  = a.constraint_name
+	FROM   user_constraints  a
+	JOIN   user_cons_columns b
+	     ON b.constraint_name = a.constraint_name
 	WHERE  a.constraint_type = 'P'
-	AND    a.owner           = SYS_CONTEXT('USERENV','CURRENT_SCHEMA')
-	GROUP  BY a.owner, a.table_name
+	GROUP  BY a.table_name
 	),
 
 	/* ==============================================================
@@ -63,29 +61,32 @@ WITH fk_info AS (
 	==============================================================*/
 	cols AS (
 	SELECT JSON_OBJECT(
-	       KEY 'schema'                   VALUE owner,
-	       KEY 'table'                    VALUE table_name,
-	       KEY 'name'                     VALUE column_name,
-	       KEY 'type'                     VALUE LOWER(data_type),
+	       KEY 'schema'                   VALUE SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),
+	       KEY 'table'                    VALUE col.table_name,
+	       KEY 'name'                     VALUE col.column_name,
+	       KEY 'type'                     VALUE LOWER(col.data_type),
 	       KEY 'character_maximum_length' VALUE CASE
-	                                              WHEN data_type LIKE '%CHAR%'
-	                                              THEN TO_CHAR(char_length)
+	                                              WHEN col.data_type LIKE '%CHAR%'
+	                                              THEN TO_CHAR(col.char_length)
 	                                            END,
 	       KEY 'precision'                VALUE CASE
-	                                              WHEN data_type IN ('NUMBER','FLOAT','DECIMAL')
+	                                              WHEN col.data_type IN ('NUMBER','FLOAT','DECIMAL')
 	                                              THEN JSON_OBJECT(
-	                                                     KEY 'precision' VALUE data_precision,
-	                                                     KEY 'scale'     VALUE data_scale)
+	                                                     KEY 'precision' VALUE col.data_precision,
+	                                                     KEY 'scale'     VALUE col.data_scale)
 	                                            END,
-	       KEY 'ordinal_position'         VALUE column_id,
-	       KEY 'nullable'                 VALUE CASE nullable
+	       KEY 'ordinal_position'         VALUE col.column_id,
+	       KEY 'nullable'                 VALUE CASE col.nullable
 	                                            WHEN 'Y' THEN 'true' ELSE 'false' END FORMAT JSON,
 	       KEY 'default'                  VALUE '""' FORMAT JSON,
-	       KEY 'collation'                VALUE '""' FORMAT JSON
+	       KEY 'collation'                VALUE '""' FORMAT JSON,
+	       KEY 'comment'                  VALUE ccm.comments
 	       RETURNING CLOB
 	     ) AS json_data
-	FROM   all_tab_columns
-	WHERE  owner = SYS_CONTEXT('USERENV','CURRENT_SCHEMA')
+	FROM   user_tab_columns col
+	LEFT JOIN user_col_comments ccm
+	     ON  ccm.table_name  = col.table_name
+	    AND ccm.column_name = col.column_name
 	),
 
 	/* ==============================================================
@@ -93,7 +94,7 @@ WITH fk_info AS (
 	==============================================================*/
 	indexes AS (
 	SELECT JSON_OBJECT(
-	         KEY 'schema'          VALUE i.owner,
+	         KEY 'schema'          VALUE SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),
 	         KEY 'table'           VALUE i.table_name,
 	         KEY 'name'            VALUE i.index_name,
 	         KEY 'size'            VALUE -1,
@@ -106,11 +107,10 @@ WITH fk_info AS (
 	         KEY 'unique'          VALUE CASE i.uniqueness WHEN 'UNIQUE' THEN 'true' ELSE 'false' END FORMAT JSON
 	         RETURNING CLOB
 	       ) AS json_data
-	FROM   all_indexes      i
-	JOIN   all_ind_columns  c
-	       ON  c.index_owner = i.owner
-	      AND c.index_name  = i.index_name
-	WHERE  i.owner = SYS_CONTEXT('USERENV','CURRENT_SCHEMA')
+	FROM   user_indexes      i
+	JOIN   user_ind_columns  c
+	       ON  c.index_name = i.index_name
+	      AND c.table_name = i.table_name
 	),
 
 	/* ==============================================================
@@ -118,39 +118,40 @@ WITH fk_info AS (
 	==============================================================*/
 	tbls AS (
 	SELECT JSON_OBJECT(
-	       KEY 'schema'    VALUE owner,
-	       KEY 'table'     VALUE table_name,
-	       KEY 'rows'      VALUE num_rows,
+	       KEY 'schema'    VALUE SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),
+	       KEY 'table'     VALUE t.table_name,
+	       KEY 'rows'      VALUE NVL(t.num_rows, 0),
 	       KEY 'type'      VALUE 'TABLE',
 	       KEY 'engine'    VALUE '""' FORMAT JSON,
-	       KEY 'collation' VALUE '""' FORMAT JSON
+	       KEY 'collation' VALUE '""' FORMAT JSON,
+	       KEY 'comment'   VALUE tcm.comments
 	       RETURNING CLOB
 	     ) AS json_data
-	FROM   all_tables
-	WHERE  owner = SYS_CONTEXT('USERENV','CURRENT_SCHEMA')
+	FROM   user_tables t
+	LEFT JOIN user_tab_comments tcm
+	     ON tcm.table_name = t.table_name
 	),
 	views AS (
 	SELECT JSON_OBJECT(
-	         KEY 'schema'          VALUE owner,
-	         KEY 'view_name'       VALUE view_name,
+	         KEY 'schema'          VALUE SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),
+	         KEY 'view_name'       VALUE v.view_name,
 	         /* JSON literal for empty string */
 	         KEY 'view_definition' VALUE '""' FORMAT JSON
 	         RETURNING CLOB
 	       ) AS json_data
-	FROM   all_views
-	WHERE  owner = SYS_CONTEXT('USERENV','CURRENT_SCHEMA')
+	FROM   user_views v
 	)
 
 	/* ==============================================================
 	6.  COMPOSE THE FINAL JSON DOCUMENT
 	==============================================================*/
 	SELECT JSON_OBJECT(
-	     KEY 'fk_info'       VALUE (SELECT JSON_ARRAYAGG(json_data RETURNING CLOB) FROM fk_info),
-	     KEY 'pk_info'       VALUE (SELECT JSON_ARRAYAGG(json_data RETURNING CLOB) FROM pk_info),
-	     KEY 'columns'       VALUE (SELECT JSON_ARRAYAGG(json_data RETURNING CLOB) FROM cols),
-	     KEY 'indexes'       VALUE (SELECT JSON_ARRAYAGG(json_data RETURNING CLOB) FROM indexes),
-	     KEY 'tables'        VALUE (SELECT JSON_ARRAYAGG(json_data RETURNING CLOB) FROM tbls),
-	     KEY 'views'         VALUE (SELECT JSON_ARRAYAGG(json_data RETURNING CLOB) FROM views),
+	     KEY 'fk_info'       VALUE NVL((SELECT JSON_ARRAYAGG(json_data RETURNING CLOB) FROM fk_info), TO_CLOB('[]')) FORMAT JSON,
+	     KEY 'pk_info'       VALUE NVL((SELECT JSON_ARRAYAGG(json_data RETURNING CLOB) FROM pk_info), TO_CLOB('[]')) FORMAT JSON,
+	     KEY 'columns'       VALUE NVL((SELECT JSON_ARRAYAGG(json_data RETURNING CLOB) FROM cols), TO_CLOB('[]')) FORMAT JSON,
+	     KEY 'indexes'       VALUE NVL((SELECT JSON_ARRAYAGG(json_data RETURNING CLOB) FROM indexes), TO_CLOB('[]')) FORMAT JSON,
+	     KEY 'tables'        VALUE NVL((SELECT JSON_ARRAYAGG(json_data RETURNING CLOB) FROM tbls), TO_CLOB('[]')) FORMAT JSON,
+	     KEY 'views'         VALUE NVL((SELECT JSON_ARRAYAGG(json_data RETURNING CLOB) FROM views), TO_CLOB('[]')) FORMAT JSON,
 	     KEY 'schema'        VALUE SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),
 	     KEY 'database_name' VALUE SYS_CONTEXT('USERENV','DB_NAME'),
 	     KEY 'version' 		 VALUE SYS_CONTEXT('USERENV','DB_NAME')

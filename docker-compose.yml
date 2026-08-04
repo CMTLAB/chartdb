@@ -1,0 +1,42 @@
+# Self-hosted ChartDB that serves shared, read-only team ERDs, publishable entirely
+# from the browser — no SSH, scp, or git for the maintainer.
+#
+#   chartdb    :8080  the app, the shared ERDs under /shared/, and /publish (one port)
+#   publisher         internal sidecar, reached only via nginx at /publish
+#
+# Maintainer flow: open :8080, edit a diagram, use the "Publish" menu item (or upload
+# an export at :8080/publish) with the token. Each diagram is shared under its own name
+# — new name adds an ERD, same name updates it. Teammates reload :8080 and pick from the
+# list. Nothing is shared until the first publish (until then it's plain ChartDB).
+#
+# PUBLISH_TOKEN must be set (env or .env file) — compose refuses to start without it,
+# so there is no known-default credential to forget:  PUBLISH_TOKEN=$(openssl rand -hex 16)
+
+services:
+    chartdb:
+        build:
+            context: .
+        image: chartdb-shared
+        ports:
+            - '8080:80'
+        volumes:
+            - shared-data:/srv/shared:ro
+        # Start after publisher so nginx can resolve it on its first /publish request
+        # (avoids a brief 502 window right after `up`).
+        depends_on:
+            - publisher
+        restart: unless-stopped
+
+    publisher:
+        build:
+            context: ./publish-server
+        image: chartdb-publisher
+        # No host port: reached only through nginx at /publish on the app port.
+        environment:
+            PUBLISH_TOKEN: '${PUBLISH_TOKEN:?PUBLISH_TOKEN must be set (e.g. export PUBLISH_TOKEN=$(openssl rand -hex 16))}'
+        volumes:
+            - shared-data:/data
+        restart: unless-stopped
+
+volumes:
+    shared-data:

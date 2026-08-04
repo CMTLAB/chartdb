@@ -5,6 +5,7 @@ import { useFullScreenLoader } from '@/hooks/use-full-screen-spinner';
 import { useRedoUndoStack } from '@/hooks/use-redo-undo-stack';
 import { useStorage } from '@/hooks/use-storage';
 import type { Diagram } from '@/lib/domain/diagram';
+import { seedSharedDiagrams } from '@/lib/shared-diagram';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
@@ -17,7 +18,8 @@ export const useDiagramLoader = () => {
     const { showLoader, hideLoader } = useFullScreenLoader();
     const { openCreateDiagramDialog, openOpenDiagramDialog } = useDialog();
     const navigate = useNavigate();
-    const { listDiagrams } = useStorage();
+    const { listDiagrams, getDiagram, addDiagram, deleteDiagram } =
+        useStorage();
 
     const currentDiagramLoadingRef = useRef<string | undefined>(undefined);
 
@@ -31,6 +33,14 @@ export const useDiagramLoader = () => {
         }
 
         const loadDefaultDiagram = async () => {
+            // Sync any shared team ERDs into the diagram list before the usual
+            // open/create flow, so they show up in the picker below.
+            await seedSharedDiagrams({
+                getDiagram,
+                addDiagram,
+                deleteDiagram,
+            });
+
             if (diagramId) {
                 setInitialDiagram(undefined);
                 showLoader();
@@ -86,6 +96,9 @@ export const useDiagramLoader = () => {
         showLoader,
         currentDiagram?.id,
         openOpenDiagramDialog,
+        getDiagram,
+        addDiagram,
+        deleteDiagram,
     ]);
 
     return { initialDiagram };

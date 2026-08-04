@@ -20,7 +20,12 @@ const compat = new FlatCompat({
 
 export default [
     {
-        ignores: ['**/dist', '**/.eslintrc.cjs', '**/tailwind.config.js'],
+        ignores: [
+            '**/dist',
+            '**/.eslintrc.cjs',
+            '**/tailwind.config.js',
+            'publish-server/convert-bundle.mjs',
+        ],
         // files: ['**/*.ts', '**/*.tsx'],
     },
     ...fixupConfigRules(
@@ -34,6 +39,12 @@ export default [
             'plugin:prettier/recommended'
         )
     ),
+    {
+        files: ['publish-server/**/*.mjs'],
+        languageOptions: {
+            globals: globals.node,
+        },
+    },
     {
         plugins: {
             'react-refresh': reactRefresh,

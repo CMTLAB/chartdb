@@ -16,14 +16,31 @@ const applyCommonFixups = (json: string): string => {
     );
 };
 
-// Extract inner JSON from { "metadata_json_to_import": "..." } wrapper.
-// The wrapper format has the inner JSON's quotes unescaped, making the outer
-// object invalid. We find the inner { ... } using brace counting.
+// Extract inner JSON from query-result wrappers. File exports contain a JSON
+// string; some pasted results omit escaping and need brace counting instead.
 const extractMetadataWrapper = (payload: string): string | null => {
     const wrapperKey = 'metadata_json_to_import';
-    if (!payload.includes(wrapperKey)) return null;
 
-    const keyIdx = payload.indexOf(wrapperKey);
+    try {
+        const parsed = JSON.parse(payload);
+        const wrapper = Array.isArray(parsed) ? parsed[0] : parsed;
+
+        if (wrapper && typeof wrapper === 'object') {
+            const key = Object.keys(wrapper).find(
+                (candidate) => candidate.toLowerCase() === wrapperKey
+            );
+            const value = key ? wrapper[key] : null;
+
+            if (typeof value === 'string') return value;
+        }
+    } catch {
+        // Some clients emit an invalid wrapper with unescaped inner JSON.
+    }
+
+    const normalizedPayload = payload.toLowerCase();
+    if (!normalizedPayload.includes(wrapperKey)) return null;
+
+    const keyIdx = normalizedPayload.indexOf(wrapperKey);
     const startIdx = payload.indexOf('{', keyIdx + wrapperKey.length);
     if (startIdx === -1) return null;
 
@@ -64,6 +81,17 @@ export const fixMetadataJson = (metadataJson: string): string => {
         '"default": "$1"$2'
     );
 
+    const innerJson = extractMetadataWrapper(metadataJson);
+    if (innerJson) {
+        const innerCleaned = applyCommonFixups(innerJson);
+        try {
+            JSON.parse(innerCleaned);
+            return innerCleaned;
+        } catch {
+            // Inner JSON also broken, fall through
+        }
+    }
+
     // Try minimal cleanup first — this preserves valid JSON escaping (e.g. \" in
     // string values like Snowflake clustering keys with quoted identifiers).
     // The destructive \" → " replacement below would break these.
@@ -97,21 +125,6 @@ export const fixMetadataJson = (metadataJson: string): string => {
         return csvUnwrapped;
     } catch {
         // Not CSV format, try wrapper extraction
-    }
-
-    // Try metadata_json_to_import wrapper extraction — some users paste the
-    // result wrapped in `[{"metadata_json_to_import": "{...inner json...}"}]`
-    // where the inner JSON's quotes are not escaped, making the outer object
-    // invalid. Extract the inner object directly via brace counting.
-    const innerJson = extractMetadataWrapper(metadataJson);
-    if (innerJson) {
-        const innerCleaned = applyCommonFixups(innerJson);
-        try {
-            JSON.parse(innerCleaned);
-            return innerCleaned;
-        } catch {
-            // Inner JSON also broken, fall through
-        }
     }
 
     return applyCommonFixups(

@@ -13,6 +13,7 @@ import {
     MenubarTrigger,
 } from '@/components/menubar/menubar';
 import { useChartDB } from '@/hooks/use-chartdb';
+import { usePublishDiagram } from '@/hooks/use-publish-diagram';
 import { useDialog } from '@/hooks/use-dialog';
 import { useExportImage } from '@/hooks/use-export-image';
 import { databaseTypeToLabelMap } from '@/lib/databases';
@@ -37,7 +38,9 @@ export const Menu: React.FC<MenuProps> = () => {
         deleteDiagram,
         updateDiagramUpdatedAt,
         databaseType,
+        currentDiagram,
     } = useChartDB();
+    const { publish } = usePublishDiagram();
     const {
         openCreateDiagramDialog,
         openOpenDiagramDialog,
@@ -62,7 +65,11 @@ export const Menu: React.FC<MenuProps> = () => {
         showDBViews,
         setShowDBViews,
     } = useLocalConfig();
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const publishDiagram = useCallback(
+        () => publish(currentDiagram),
+        [publish, currentDiagram]
+    );
     const { redo, undo, hasRedo, hasUndo } = useHistory();
     const { exportImage } = useExportImage();
     const navigate = useNavigate();
@@ -307,6 +314,12 @@ export const Menu: React.FC<MenuProps> = () => {
                             </MenubarItem>
                         </MenubarSubContent>
                     </MenubarSub>
+                    <MenubarSeparator />
+                    <MenubarItem onClick={publishDiagram}>
+                        {i18n.language?.startsWith('ko')
+                            ? '발행하기'
+                            : 'Publish'}
+                    </MenubarItem>
                     <MenubarSeparator />
                     <MenubarItem
                         onClick={() =>
