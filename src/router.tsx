@@ -1,6 +1,6 @@
 import React from 'react';
 import type { RouteObject } from 'react-router-dom';
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import type { TemplatePageLoaderData } from './pages/template-page/template-page';
 import type { TemplatesPageLoaderData } from './pages/templates-page/templates-page';
 import { getTemplatesAndAllTags } from './templates-data/template-utils';
@@ -190,6 +190,44 @@ const routes: RouteObject[] = [
                                         await import('./pages/admin-page/admin-page');
                                     return { element: <AdminPage /> };
                                 },
+                                children: [
+                                    {
+                                        index: true,
+                                        element: (
+                                            <Navigate replace to="diagrams" />
+                                        ),
+                                    },
+                                    {
+                                        path: 'diagrams',
+                                        async lazy() {
+                                            const { AdminDiagramsPage } =
+                                                await import('./pages/admin-page/admin-diagrams-page');
+                                            return {
+                                                element: <AdminDiagramsPage />,
+                                            };
+                                        },
+                                    },
+                                    {
+                                        path: 'users',
+                                        async lazy() {
+                                            const { AdminUsersPage } =
+                                                await import('./pages/admin-page/admin-users-page');
+                                            return {
+                                                element: <AdminUsersPage />,
+                                            };
+                                        },
+                                    },
+                                    {
+                                        path: 'groups',
+                                        async lazy() {
+                                            const { AdminGroupsPage } =
+                                                await import('./pages/admin-page/admin-groups-page');
+                                            return {
+                                                element: <AdminGroupsPage />,
+                                            };
+                                        },
+                                    },
+                                ],
                             },
                         ],
                     },

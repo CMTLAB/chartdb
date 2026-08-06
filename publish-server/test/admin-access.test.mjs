@@ -127,6 +127,298 @@ test('read access is admin, publisher, direct grant, or group grant', async () =
     await app.close();
 });
 
+test('admin catalogs include identity and assignment summaries', async () => {
+    const { app, admin, diagramId } = await setup();
+    const cookie = await loginCookie(
+        app,
+        admin.username,
+        'temporary-password-123'
+    );
+
+    const diagrams = await app.inject({
+        method: 'GET',
+        url: '/api/admin/diagrams',
+        headers: { cookie },
+    });
+    const diagram = diagrams
+        .json()
+        .diagrams.find((item) => item.id === diagramId);
+    assert.equal(diagram.createdByUsername, 'publisher');
+    assert.match(diagram.createdAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(diagram.publisherCount, 2);
+    assert.equal(diagram.userGrantCount, 1);
+    assert.equal(diagram.groupGrantCount, 1);
+
+    const groups = await app.inject({
+        method: 'GET',
+        url: '/api/admin/groups',
+        headers: { cookie },
+    });
+    assert.equal(groups.json().groups[0].diagramGrantCount, 1);
+    await app.close();
+});
+
+test('admin replaces all diagram access assignments in one request', async () => {
+    const context = await setup();
+    const { app, admin, coPublisher, outsider, diagramId, db } = context;
+    const cookie = await loginCookie(
+        app,
+        admin.username,
+        'temporary-password-123'
+    );
+    const groupId = db.prepare('SELECT id FROM groups').get().id;
+
+    const response = await app.inject({
+        method: 'PUT',
+        url: `/api/admin/diagrams/${diagramId}/access`,
+        headers: mutationHeaders(cookie),
+        payload: {
+            publisherIds: [coPublisher.id],
+            userGrantIds: [outsider.id],
+            groupGrantIds: [groupId],
+        },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json().diagram.publisherIds, [coPublisher.id]);
+    assert.deepEqual(response.json().diagram.userGrantIds, [outsider.id]);
+    assert.deepEqual(response.json().diagram.groupGrantIds, [groupId]);
+    await app.close();
+});
+
+test('diagram access replacement validates new assignments but accepts existing inactive ones', async () => {
+    const context = await setup();
+    const { app, admin, coPublisher, directViewer, outsider, diagramId, db } =
+        context;
+    const cookie = await loginCookie(
+        app,
+        admin.username,
+        'temporary-password-123'
+    );
+    const groupId = db.prepare('SELECT id FROM groups').get().id;
+    db.prepare('UPDATE users SET active = 0 WHERE id IN (?, ?)').run(
+        coPublisher.id,
+        directViewer.id
+    );
+
+    const existing = await app.inject({
+        method: 'PUT',
+        url: `/api/admin/diagrams/${diagramId}/access`,
+        headers: mutationHeaders(cookie),
+        payload: {
+            publisherIds: [coPublisher.id],
+            userGrantIds: [directViewer.id],
+            groupGrantIds: [groupId],
+        },
+    });
+    assert.equal(existing.statusCode, 200);
+
+    db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(outsider.id);
+    const invalidNewUser = await app.inject({
+        method: 'PUT',
+        url: `/api/admin/diagrams/${diagramId}/access`,
+        headers: mutationHeaders(cookie),
+        payload: {
+            publisherIds: [coPublisher.id],
+            userGrantIds: [directViewer.id, outsider.id],
+            groupGrantIds: [groupId],
+        },
+    });
+    assert.equal(invalidNewUser.statusCode, 422);
+
+    const invalidAdminGrant = await app.inject({
+        method: 'PUT',
+        url: `/api/admin/diagrams/${diagramId}/access`,
+        headers: mutationHeaders(cookie),
+        payload: {
+            publisherIds: [coPublisher.id],
+            userGrantIds: [directViewer.id, admin.id],
+            groupGrantIds: [groupId],
+        },
+    });
+    assert.equal(invalidAdminGrant.statusCode, 422);
+
+    const duplicate = await app.inject({
+        method: 'PUT',
+        url: `/api/admin/diagrams/${diagramId}/access`,
+        headers: mutationHeaders(cookie),
+        payload: {
+            publisherIds: [coPublisher.id, coPublisher.id],
+            userGrantIds: [],
+            groupGrantIds: [],
+        },
+    });
+    assert.equal(duplicate.statusCode, 422);
+
+    const missingGroup = await app.inject({
+        method: 'PUT',
+        url: `/api/admin/diagrams/${diagramId}/access`,
+        headers: mutationHeaders(cookie),
+        payload: {
+            publisherIds: [coPublisher.id],
+            userGrantIds: [directViewer.id],
+            groupGrantIds: ['missing-group'],
+        },
+    });
+    assert.equal(missingGroup.statusCode, 422);
+
+    const missingDiagram = await app.inject({
+        method: 'PUT',
+        url: '/api/admin/diagrams/missing-diagram/access',
+        headers: mutationHeaders(cookie),
+        payload: {
+            publisherIds: [],
+            userGrantIds: [],
+            groupGrantIds: [],
+        },
+    });
+    assert.equal(missingDiagram.statusCode, 404);
+    await app.close();
+});
+
+test('diagram access replacement rolls back every assignment on write failure', async () => {
+    const context = await setup();
+    const { app, admin, coPublisher, outsider, diagramId, db } = context;
+    const cookie = await loginCookie(
+        app,
+        admin.username,
+        'temporary-password-123'
+    );
+    const rows = (table, column) =>
+        db
+            .prepare(
+                `SELECT ${column} AS id FROM ${table} WHERE diagram_id = ? ORDER BY ${column}`
+            )
+            .all(diagramId);
+    const before = {
+        publishers: rows('diagram_publishers', 'user_id'),
+        users: rows('user_diagram_grants', 'user_id'),
+        groups: rows('group_diagram_grants', 'group_id'),
+    };
+    db.exec(`CREATE TRIGGER reject_direct_grant
+             BEFORE INSERT ON user_diagram_grants
+             BEGIN SELECT RAISE(ABORT, 'forced failure'); END`);
+
+    const response = await app.inject({
+        method: 'PUT',
+        url: `/api/admin/diagrams/${diagramId}/access`,
+        headers: mutationHeaders(cookie),
+        payload: {
+            publisherIds: [coPublisher.id],
+            userGrantIds: [outsider.id],
+            groupGrantIds: [],
+        },
+    });
+
+    assert.equal(response.statusCode, 500);
+    assert.deepEqual(rows('diagram_publishers', 'user_id'), before.publishers);
+    assert.deepEqual(rows('user_diagram_grants', 'user_id'), before.users);
+    assert.deepEqual(rows('group_diagram_grants', 'group_id'), before.groups);
+    await app.close();
+});
+
+test('admin replaces group members and preserves existing inactive members', async () => {
+    const context = await setup();
+    const { app, admin, groupedViewer, directViewer, outsider, db } = context;
+    const cookie = await loginCookie(
+        app,
+        admin.username,
+        'temporary-password-123'
+    );
+    const groupId = db.prepare('SELECT id FROM groups').get().id;
+    db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(
+        groupedViewer.id
+    );
+
+    const kept = await app.inject({
+        method: 'PUT',
+        url: `/api/admin/groups/${groupId}/members`,
+        headers: mutationHeaders(cookie),
+        payload: { userIds: [groupedViewer.id, outsider.id] },
+    });
+    assert.equal(kept.statusCode, 200);
+    assert.deepEqual(
+        kept.json().group.userIds.sort(),
+        [groupedViewer.id, outsider.id].sort()
+    );
+
+    db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(directViewer.id);
+    const invalidNewMember = await app.inject({
+        method: 'PUT',
+        url: `/api/admin/groups/${groupId}/members`,
+        headers: mutationHeaders(cookie),
+        payload: { userIds: [outsider.id, directViewer.id] },
+    });
+    assert.equal(invalidNewMember.statusCode, 422);
+    assert.deepEqual(
+        db
+            .prepare(
+                'SELECT user_id FROM user_groups WHERE group_id = ? ORDER BY user_id'
+            )
+            .all(groupId)
+            .map((row) => row.user_id),
+        [groupedViewer.id, outsider.id].sort()
+    );
+
+    const removed = await app.inject({
+        method: 'PUT',
+        url: `/api/admin/groups/${groupId}/members`,
+        headers: mutationHeaders(cookie),
+        payload: { userIds: [outsider.id] },
+    });
+    assert.equal(removed.statusCode, 200);
+    assert.deepEqual(removed.json().group.userIds, [outsider.id]);
+
+    const duplicate = await app.inject({
+        method: 'PUT',
+        url: `/api/admin/groups/${groupId}/members`,
+        headers: mutationHeaders(cookie),
+        payload: { userIds: [outsider.id, outsider.id] },
+    });
+    assert.equal(duplicate.statusCode, 422);
+
+    const missingGroup = await app.inject({
+        method: 'PUT',
+        url: '/api/admin/groups/missing-group/members',
+        headers: mutationHeaders(cookie),
+        payload: { userIds: [] },
+    });
+    assert.equal(missingGroup.statusCode, 404);
+    await app.close();
+});
+
+test('group member replacement rolls back on write failure', async () => {
+    const context = await setup();
+    const { app, admin, outsider, db } = context;
+    const cookie = await loginCookie(
+        app,
+        admin.username,
+        'temporary-password-123'
+    );
+    const groupId = db.prepare('SELECT id FROM groups').get().id;
+    const members = () =>
+        db
+            .prepare(
+                'SELECT user_id FROM user_groups WHERE group_id = ? ORDER BY user_id'
+            )
+            .all(groupId);
+    const before = members();
+    db.exec(`CREATE TRIGGER reject_group_member
+             BEFORE INSERT ON user_groups
+             BEGIN SELECT RAISE(ABORT, 'forced failure'); END`);
+
+    const response = await app.inject({
+        method: 'PUT',
+        url: `/api/admin/groups/${groupId}/members`,
+        headers: mutationHeaders(cookie),
+        payload: { userIds: [outsider.id] },
+    });
+
+    assert.equal(response.statusCode, 500);
+    assert.deepEqual(members(), before);
+    await app.close();
+});
+
 test('only an admin can create users and assign co-publishers', async () => {
     const { app, admin, publisher, diagramId } = await setup();
     const adminCookie = await loginCookie(
