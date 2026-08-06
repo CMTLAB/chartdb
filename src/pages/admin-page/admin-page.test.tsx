@@ -25,5 +25,8 @@ it('shows the admin sections and selected page', () => {
     expect(
         screen.getAllByRole('link', { name: '그룹 관리' })[0]
     ).toHaveAttribute('href', '/admin/groups');
+    expect(
+        screen.getAllByRole('link', { name: '토큰 관리' })[0]
+    ).toHaveAttribute('href', '/admin/tokens');
     expect(screen.getByText('ERD 목록')).toBeVisible();
 });

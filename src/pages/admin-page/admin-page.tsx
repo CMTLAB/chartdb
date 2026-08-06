@@ -8,6 +8,7 @@ const sections = [
     { to: '/admin/diagrams', label: 'ERD 관리' },
     { to: '/admin/users', label: '사용자 관리' },
     { to: '/admin/groups', label: '그룹 관리' },
+    { to: '/admin/tokens', label: '토큰 관리' },
 ];
 
 const AdminNavigation = ({ className }: { className?: string }) => (

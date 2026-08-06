@@ -894,6 +894,141 @@ test('removing the publisher role revokes existing API tokens', async () => {
     await app.close();
 });
 
+test('admin lists token owners without receiving token secrets or hashes', async () => {
+    const { app, db, admin, publisher } = await setup();
+    const adminCookie = await loginCookie(
+        app,
+        admin.username,
+        'temporary-password-123'
+    );
+    const publisherCookie = await loginCookie(
+        app,
+        publisher.username,
+        'user-password-123'
+    );
+    db.prepare(
+        'UPDATE users SET display_name = ?, department = ? WHERE id = ?'
+    ).run('Publisher Kim', 'Data Platform', publisher.id);
+    const storedHash = hashSecret('cdb_admin-list-secret');
+    db.prepare(
+        `INSERT INTO api_tokens(
+            id, token_hash, owner_user_id, label, created_at
+         ) VALUES ('admin-list-token', ?, ?, 'nightly-import', ?)`
+    ).run(storedHash, publisher.id, '2026-08-06T00:00:00.000Z');
+
+    const listed = await app.inject({
+        method: 'GET',
+        url: '/api/admin/tokens',
+        headers: { cookie: adminCookie },
+    });
+    assert.equal(listed.statusCode, 200);
+    assert.deepEqual(listed.json().tokens[0].owner, {
+        id: publisher.id,
+        username: publisher.username,
+        displayName: 'Publisher Kim',
+        department: 'Data Platform',
+        active: true,
+    });
+    assert.equal(listed.json().tokens[0].label, 'nightly-import');
+    assert.equal(JSON.stringify(listed.json()).includes(storedHash), false);
+    assert.equal('tokenHash' in listed.json().tokens[0], false);
+
+    const denied = await app.inject({
+        method: 'GET',
+        url: '/api/admin/tokens',
+        headers: { cookie: publisherCookie },
+    });
+    assert.equal(denied.statusCode, 403);
+    await app.close();
+});
+
+test('admin revokes a token atomically with safe audit detail', async () => {
+    const { app, db, admin, publisher, diagramId } = await setup();
+    const adminCookie = await loginCookie(
+        app,
+        admin.username,
+        'temporary-password-123'
+    );
+    const publisherCookie = await loginCookie(
+        app,
+        publisher.username,
+        'user-password-123'
+    );
+    const created = await app.inject({
+        method: 'POST',
+        url: '/api/tokens',
+        headers: mutationHeaders(publisherCookie),
+        payload: { label: 'admin-revoke' },
+    });
+    const tokenId = created.json().item.id;
+    const plaintext = created.json().token;
+
+    const versionPayload = {
+        diagram: {
+            id: 'token-test',
+            name: 'Shared ERD',
+            databaseType: 'postgresql',
+            tables: [],
+            relationships: [],
+            dependencies: [],
+            areas: [],
+            customTypes: [],
+            notes: [],
+        },
+    };
+    const before = await app.inject({
+        method: 'POST',
+        url: `/api/diagrams/${diagramId}/versions`,
+        headers: { authorization: `Bearer ${plaintext}` },
+        payload: versionPayload,
+    });
+    assert.equal(before.statusCode, 201);
+
+    const denied = await app.inject({
+        method: 'DELETE',
+        url: `/api/admin/tokens/${tokenId}`,
+        headers: mutationHeaders(publisherCookie),
+    });
+    assert.equal(denied.statusCode, 403);
+
+    const revoked = await app.inject({
+        method: 'DELETE',
+        url: `/api/admin/tokens/${tokenId}`,
+        headers: mutationHeaders(adminCookie),
+    });
+    assert.equal(revoked.statusCode, 204);
+
+    const after = await app.inject({
+        method: 'POST',
+        url: `/api/diagrams/${diagramId}/versions`,
+        headers: { authorization: `Bearer ${plaintext}` },
+        payload: versionPayload,
+    });
+    assert.equal(after.statusCode, 401);
+    const audit = db
+        .prepare(
+            `SELECT action, target_type, target_id, detail_json
+             FROM audit_log WHERE action = 'API_TOKEN_REVOKED'`
+        )
+        .get();
+    assert.equal(audit.target_type, 'API_TOKEN');
+    assert.equal(audit.target_id, tokenId);
+    assert.deepEqual(JSON.parse(audit.detail_json), {
+        label: 'admin-revoke',
+        ownerUserId: publisher.id,
+        ownerUsername: publisher.username,
+    });
+    assert.equal(audit.detail_json.includes(plaintext), false);
+
+    const repeated = await app.inject({
+        method: 'DELETE',
+        url: `/api/admin/tokens/${tokenId}`,
+        headers: mutationHeaders(adminCookie),
+    });
+    assert.equal(repeated.statusCode, 404);
+    await app.close();
+});
+
 test('admin and token routes reject non-string fields without returning 500', async () => {
     const { app, admin, publisher } = await setup();
     const adminCookie = await loginCookie(

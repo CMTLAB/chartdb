@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 
 import { router } from './router';
 
-it('routes admin management to ERDs, users, and groups', () => {
+it('routes all admin management sections', () => {
     const pending = [...router.routes];
     let admin;
     while (pending.length > 0) {
@@ -17,6 +17,6 @@ it('routes admin management to ERDs, users, and groups', () => {
     expect(admin?.path).toBe('admin');
     expect(admin?.children?.some((route) => route.index)).toBe(true);
     expect(admin?.children?.map((route) => route.path).filter(Boolean)).toEqual(
-        ['diagrams', 'users', 'groups']
+        ['diagrams', 'users', 'groups', 'tokens']
     );
 });

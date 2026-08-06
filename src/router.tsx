@@ -227,6 +227,16 @@ const routes: RouteObject[] = [
                                             };
                                         },
                                     },
+                                    {
+                                        path: 'tokens',
+                                        async lazy() {
+                                            const { AdminTokensPage } =
+                                                await import('./pages/admin-page/admin-tokens-page');
+                                            return {
+                                                element: <AdminTokensPage />,
+                                            };
+                                        },
+                                    },
                                 ],
                             },
                         ],
