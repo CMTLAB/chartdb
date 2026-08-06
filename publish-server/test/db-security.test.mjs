@@ -32,6 +32,46 @@ test('migrates an empty database and bootstraps one forced-change admin', async 
     );
 });
 
+test('migration adds an optional department without losing existing users', () => {
+    const db = openDatabase(':memory:');
+    db.exec(`
+        CREATE TABLE schema_migrations (
+            version INTEGER PRIMARY KEY,
+            applied_at TEXT NOT NULL
+        );
+        CREATE TABLE users (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            display_name TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL,
+            must_change_password INTEGER NOT NULL,
+            active INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        INSERT INTO users VALUES (
+            'existing-id', 'existing', 'Existing User', 'hash', 'VIEWER',
+            0, 1, '2026-08-06T00:00:00.000Z', '2026-08-06T00:00:00.000Z'
+        );
+        INSERT INTO schema_migrations VALUES
+            (1, '2026-08-04T00:00:00.000Z'),
+            (2, '2026-08-05T00:00:00.000Z');
+    `);
+
+    migrate(db);
+
+    const columns = db.prepare('PRAGMA table_info(users)').all();
+    assert.equal(
+        columns.some((column) => column.name === 'department'),
+        true
+    );
+    assert.deepEqual(
+        { ...db.prepare('SELECT username, department FROM users').get() },
+        { username: 'existing', department: null }
+    );
+});
+
 test('bootstrap refuses an empty database without credentials', async () => {
     const db = openDatabase(':memory:');
     migrate(db);

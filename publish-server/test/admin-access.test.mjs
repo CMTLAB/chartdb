@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { canPublishDiagram, canReadDiagram } from '../src/access.mjs';
 import { buildApp } from '../src/app.mjs';
 import { bootstrapAdmin, migrate, openDatabase } from '../src/db.mjs';
-import { hashPassword, hashSecret } from '../src/security.mjs';
+import { hashPassword, hashSecret, verifyPassword } from '../src/security.mjs';
 
 const insertUser = async (db, username, role) => {
     const id = randomUUID();
@@ -507,7 +507,10 @@ test('admin mutations append actor and safe details to the audit log', async () 
         method: 'PATCH',
         url: `/api/admin/users/${userId}`,
         headers,
-        payload: { role: 'PUBLISHER' },
+        payload: {
+            role: 'PUBLISHER',
+            temporaryPassword: 'another-never-log-this-password',
+        },
     });
     const createdGroup = await app.inject({
         method: 'POST',
@@ -571,6 +574,14 @@ test('admin mutations append actor and safe details to the audit log', async () 
         rows.some((row) => row.detail_json.includes('never-log-this-password')),
         false
     );
+    assert.equal(
+        rows.some((row) =>
+            row.detail_json.includes('another-never-log-this-password')
+        ),
+        false
+    );
+    const userUpdated = rows.find((row) => row.action === 'USER_UPDATED');
+    assert.equal(JSON.parse(userUpdated.detail_json).passwordReset, true);
     const accessDetail = JSON.parse(rows[0].detail_json);
     assert.deepEqual(accessDetail.after.publisherIds, [coPublisher.id]);
     assert.deepEqual(accessDetail.after.userGrantIds, [outsider.id]);
@@ -668,6 +679,111 @@ test('only an admin can create users and assign co-publishers', async () => {
         headers: mutationHeaders(adminCookie),
     });
     assert.equal(assigned.statusCode, 204);
+    await app.close();
+});
+
+test('admin creates, lists, and updates an optional user department', async () => {
+    const { app, admin } = await setup();
+    const cookie = await loginCookie(
+        app,
+        admin.username,
+        'temporary-password-123'
+    );
+    const headers = mutationHeaders(cookie);
+    const created = await app.inject({
+        method: 'POST',
+        url: '/api/admin/users',
+        headers,
+        payload: {
+            username: 'department-user',
+            displayName: 'Department User',
+            department: '  Data Platform  ',
+            role: 'VIEWER',
+            temporaryPassword: 'temporary-password-123',
+        },
+    });
+    assert.equal(created.statusCode, 201);
+    assert.equal(created.json().user.department, 'Data Platform');
+
+    const updated = await app.inject({
+        method: 'PATCH',
+        url: `/api/admin/users/${created.json().user.id}`,
+        headers,
+        payload: { department: 'Finance' },
+    });
+    assert.equal(updated.statusCode, 200);
+    assert.equal(updated.json().user.department, 'Finance');
+
+    const listed = await app.inject({
+        method: 'GET',
+        url: '/api/admin/users',
+        headers: { cookie },
+    });
+    assert.equal(
+        listed.json().users.find((user) => user.id === created.json().user.id)
+            .department,
+        'Finance'
+    );
+
+    const cleared = await app.inject({
+        method: 'PATCH',
+        url: `/api/admin/users/${created.json().user.id}`,
+        headers,
+        payload: { department: '   ' },
+    });
+    assert.equal(cleared.statusCode, 200);
+    assert.equal(cleared.json().user.department, null);
+    await app.close();
+});
+
+test('admin password reset revokes sessions and forces the next-login change flow', async () => {
+    const { app, db, admin, publisher } = await setup();
+    const adminCookie = await loginCookie(
+        app,
+        admin.username,
+        'temporary-password-123'
+    );
+    await loginCookie(app, publisher.username, 'user-password-123');
+    const reset = await app.inject({
+        method: 'PATCH',
+        url: `/api/admin/users/${publisher.id}`,
+        headers: mutationHeaders(adminCookie),
+        payload: { temporaryPassword: 'replacement-password-123' },
+    });
+    assert.equal(reset.statusCode, 200);
+    assert.equal(reset.json().user.mustChangePassword, true);
+    const stored = db
+        .prepare(
+            'SELECT password_hash, must_change_password FROM users WHERE id = ?'
+        )
+        .get(publisher.id);
+    assert.equal(stored.must_change_password, 1);
+    assert.equal(
+        await verifyPassword('replacement-password-123', stored.password_hash),
+        true
+    );
+    assert.equal(
+        db
+            .prepare('SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?')
+            .get(publisher.id).count,
+        0
+    );
+    const login = await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: {
+            username: publisher.username,
+            password: 'replacement-password-123',
+        },
+    });
+    assert.equal(login.statusCode, 200);
+    assert.equal(login.json().user.mustChangePassword, true);
+    const blocked = await app.inject({
+        method: 'GET',
+        url: '/api/diagrams',
+        headers: { cookie: login.headers['set-cookie'].split(';')[0] },
+    });
+    assert.equal(blocked.statusCode, 403);
     await app.close();
 });
 

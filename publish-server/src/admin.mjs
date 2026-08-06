@@ -15,9 +15,16 @@ import { hashPassword } from './security.mjs';
 const ROLES = new Set(['ADMIN', 'PUBLISHER', 'VIEWER']);
 const validUsername = (value) =>
     typeof value === 'string' && /^[A-Za-z0-9._-]{3,64}$/.test(value);
+const optionalDepartment = (value) => {
+    const trimmed = trimString(value);
+    return trimmed === undefined || trimmed === null || trimmed === ''
+        ? null
+        : trimmed;
+};
 
 const adminUser = (row) => ({
     ...publicUser(row),
+    department: row.department ?? null,
     active: Boolean(row.active),
     createdAt: row.created_at,
 });
@@ -135,11 +142,13 @@ export const registerAdminRoutes = async (app, { db }) => {
                 requestedDisplayName === ''
                     ? username
                     : requestedDisplayName;
+            const department = optionalDepartment(request.body?.department);
             const role = request.body?.role;
             const password = request.body?.temporaryPassword;
             if (
                 !validUsername(username) ||
                 !isNonEmptyString(displayName, 100) ||
+                (department !== null && !isNonEmptyString(department, 100)) ||
                 !ROLES.has(role) ||
                 typeof password !== 'string' ||
                 password.length < 12
@@ -155,13 +164,14 @@ export const registerAdminRoutes = async (app, { db }) => {
                 transact(db, () => {
                     db.prepare(
                         `INSERT INTO users(
-                            id, username, display_name, password_hash, role,
+                            id, username, display_name, department, password_hash, role,
                             must_change_password, active, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?)`
+                        ) VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`
                     ).run(
                         id,
                         username,
                         displayName,
+                        department,
                         passwordHash,
                         role,
                         now,
@@ -172,7 +182,7 @@ export const registerAdminRoutes = async (app, { db }) => {
                         action: 'USER_CREATED',
                         targetType: 'USER',
                         targetId: id,
-                        detail: { username, displayName, role },
+                        detail: { username, displayName, department, role },
                         at: now,
                     });
                 });
@@ -199,6 +209,10 @@ export const registerAdminRoutes = async (app, { db }) => {
                 request.body?.displayName === undefined
                     ? target.display_name
                     : trimString(request.body.displayName);
+            const department =
+                request.body?.department === undefined
+                    ? target.department
+                    : optionalDepartment(request.body.department);
             const role = request.body?.role ?? target.role;
             const active =
                 request.body?.active === undefined
@@ -206,6 +220,7 @@ export const registerAdminRoutes = async (app, { db }) => {
                     : request.body.active;
             if (
                 !isNonEmptyString(displayName, 100) ||
+                (department !== null && !isNonEmptyString(department, 100)) ||
                 !ROLES.has(role) ||
                 typeof active !== 'boolean'
             ) {
@@ -231,14 +246,43 @@ export const registerAdminRoutes = async (app, { db }) => {
                     error: 'Remove this user from all diagram publishers before changing the role.',
                 });
             }
+            const temporaryPassword = request.body?.temporaryPassword;
+            if (
+                temporaryPassword !== undefined &&
+                (typeof temporaryPassword !== 'string' ||
+                    temporaryPassword.length < 12)
+            ) {
+                return reply.code(422).send({ error: 'Invalid user update.' });
+            }
+            const passwordHash =
+                temporaryPassword === undefined
+                    ? null
+                    : await hashPassword(temporaryPassword);
 
             const now = new Date().toISOString();
             transact(db, () => {
                 db.prepare(
                     `UPDATE users
-                     SET display_name = ?, role = ?, active = ?, updated_at = ?
+                     SET display_name = ?, department = ?, role = ?, active = ?, updated_at = ?
                      WHERE id = ?`
-                ).run(displayName, role, active ? 1 : 0, now, target.id);
+                ).run(
+                    displayName,
+                    department,
+                    role,
+                    active ? 1 : 0,
+                    now,
+                    target.id
+                );
+                if (passwordHash !== null) {
+                    db.prepare(
+                        `UPDATE users
+                         SET password_hash = ?, must_change_password = 1, updated_at = ?
+                         WHERE id = ?`
+                    ).run(passwordHash, now, target.id);
+                    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(
+                        target.id
+                    );
+                }
                 if (!active) {
                     db.prepare('DELETE FROM sessions WHERE user_id = ?').run(
                         target.id
@@ -258,10 +302,12 @@ export const registerAdminRoutes = async (app, { db }) => {
                     detail: {
                         before: {
                             displayName: target.display_name,
+                            department: target.department,
                             role: target.role,
                             active: Boolean(target.active),
                         },
-                        after: { displayName, role, active },
+                        after: { displayName, department, role, active },
+                        passwordReset: passwordHash !== null,
                     },
                     at: now,
                 });

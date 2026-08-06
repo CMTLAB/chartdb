@@ -109,6 +109,9 @@ const MIGRATIONS = [
     CREATE INDEX audit_log_at_idx ON audit_log(at DESC);
     CREATE INDEX audit_log_target_idx ON audit_log(target_type, target_id, at DESC);
     `,
+    `
+    ALTER TABLE users ADD COLUMN department TEXT;
+    `,
 ];
 
 export const openDatabase = (filename) => {

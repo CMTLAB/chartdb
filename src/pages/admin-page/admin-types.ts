@@ -4,6 +4,7 @@ export interface AdminUser {
     id: string;
     username: string;
     displayName: string;
+    department: string | null;
     role: UserRole;
     mustChangePassword: boolean;
     active: boolean;

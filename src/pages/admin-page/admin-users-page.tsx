@@ -8,16 +8,6 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/card/card';
-import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-} from '@/components/dialog/dialog';
 import { Input } from '@/components/input/input';
 import {
     Pagination,
@@ -38,145 +28,12 @@ import type { UserRole } from '@/context/auth-context/auth-context';
 import { apiFetch } from '@/lib/api';
 
 import type { AdminUser } from './admin-types';
+import { UserCreateDialog } from './user-create-dialog';
+import { UserEditDialog } from './user-edit-dialog';
 
 const PAGE_SIZE = 20;
 type ActiveFilter = 'all' | 'active' | 'inactive';
 type RoleFilter = 'ALL' | UserRole;
-
-const UserCreateDialog = ({
-    onCreated,
-}: {
-    onCreated: (user: AdminUser) => void;
-}) => {
-    const [open, setOpen] = useState(false);
-    const [username, setUsername] = useState('');
-    const [displayName, setDisplayName] = useState('');
-    const [temporaryPassword, setTemporaryPassword] = useState('');
-    const [role, setRole] = useState<UserRole>('VIEWER');
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState('');
-
-    const setDialogOpen = (nextOpen: boolean) => {
-        setOpen(nextOpen);
-        if (nextOpen) {
-            setUsername('');
-            setDisplayName('');
-            setTemporaryPassword('');
-            setRole('VIEWER');
-            setError('');
-        }
-    };
-
-    const create = async (event: React.FormEvent) => {
-        event.preventDefault();
-        setSaving(true);
-        setError('');
-        try {
-            const response = await apiFetch<{ user: AdminUser }>(
-                '/api/admin/users',
-                {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        username,
-                        displayName,
-                        temporaryPassword,
-                        role,
-                    }),
-                }
-            );
-            onCreated(response.user);
-            setOpen(false);
-        } catch (createError) {
-            setError(
-                createError instanceof Error
-                    ? createError.message
-                    : '사용자를 생성하지 못했습니다.'
-            );
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    return (
-        <Dialog open={open} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-                <Button>사용자 생성</Button>
-            </DialogTrigger>
-            <DialogContent showClose>
-                <form className="space-y-4" onSubmit={create}>
-                    <DialogHeader>
-                        <DialogTitle>사용자 생성</DialogTitle>
-                        <DialogDescription>
-                            아이디는 중복될 수 없으며 첫 로그인 때 비밀번호를
-                            변경해야 합니다.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <label className="block space-y-1 text-sm">
-                        <span>아이디</span>
-                        <Input
-                            value={username}
-                            onChange={(event) =>
-                                setUsername(event.target.value)
-                            }
-                            required
-                        />
-                    </label>
-                    <label className="block space-y-1 text-sm">
-                        <span>표시 이름</span>
-                        <Input
-                            value={displayName}
-                            onChange={(event) =>
-                                setDisplayName(event.target.value)
-                            }
-                            required
-                        />
-                    </label>
-                    <label className="block space-y-1 text-sm">
-                        <span>임시 비밀번호</span>
-                        <Input
-                            type="password"
-                            minLength={12}
-                            value={temporaryPassword}
-                            onChange={(event) =>
-                                setTemporaryPassword(event.target.value)
-                            }
-                            required
-                        />
-                    </label>
-                    <label className="block space-y-1 text-sm">
-                        <span>역할</span>
-                        <select
-                            className="h-9 w-full rounded-md border bg-background px-3"
-                            value={role}
-                            onChange={(event) =>
-                                setRole(event.target.value as UserRole)
-                            }
-                        >
-                            <option value="VIEWER">VIEWER</option>
-                            <option value="PUBLISHER">PUBLISHER</option>
-                            <option value="ADMIN">ADMIN</option>
-                        </select>
-                    </label>
-                    {error ? (
-                        <p role="alert" className="text-sm text-destructive">
-                            {error}
-                        </p>
-                    ) : null}
-                    <DialogFooter>
-                        <DialogClose asChild>
-                            <Button type="button" variant="secondary">
-                                취소
-                            </Button>
-                        </DialogClose>
-                        <Button disabled={saving}>
-                            {saving ? '생성 중…' : '생성'}
-                        </Button>
-                    </DialogFooter>
-                </form>
-            </DialogContent>
-        </Dialog>
-    );
-};
 
 export const AdminUsersPage = () => {
     const [users, setUsers] = useState<AdminUser[]>([]);
@@ -186,6 +43,7 @@ export const AdminUsersPage = () => {
     const [page, setPage] = useState(1);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
 
     useEffect(() => {
         let mounted = true;
@@ -212,9 +70,10 @@ export const AdminUsersPage = () => {
     const filtered = useMemo(() => {
         const query = search.trim().toLocaleLowerCase();
         return users.filter((user) => {
-            const matchesSearch = `${user.displayName} ${user.username}`
-                .toLocaleLowerCase()
-                .includes(query);
+            const matchesSearch =
+                `${user.displayName} ${user.username} ${user.department ?? ''}`
+                    .toLocaleLowerCase()
+                    .includes(query);
             const matchesRole = role === 'ALL' || user.role === role;
             const matchesActive =
                 active === 'all' ||
@@ -228,30 +87,6 @@ export const AdminUsersPage = () => {
         (safePage - 1) * PAGE_SIZE,
         safePage * PAGE_SIZE
     );
-
-    const updateUser = async (
-        userId: string,
-        update: { active?: boolean; role?: UserRole }
-    ) => {
-        try {
-            const response = await apiFetch<{ user: AdminUser }>(
-                `/api/admin/users/${userId}`,
-                { method: 'PATCH', body: JSON.stringify(update) }
-            );
-            setUsers((current) =>
-                current.map((user) =>
-                    user.id === userId ? response.user : user
-                )
-            );
-            setError('');
-        } catch (updateError) {
-            setError(
-                updateError instanceof Error
-                    ? updateError.message
-                    : '사용자를 변경하지 못했습니다.'
-            );
-        }
-    };
 
     if (loading) {
         return <p className="py-12 text-center">사용자를 불러오는 중…</p>;
@@ -283,7 +118,7 @@ export const AdminUsersPage = () => {
                     type="search"
                     role="searchbox"
                     aria-label="사용자 검색"
-                    placeholder="표시 이름 또는 아이디 검색"
+                    placeholder="표시 이름, 아이디 또는 부서 검색"
                     value={search}
                     onChange={(event) => {
                         setSearch(event.target.value);
@@ -349,10 +184,27 @@ export const AdminUsersPage = () => {
                                     className="block space-y-3 p-4 md:table-row md:space-y-0 md:p-0"
                                 >
                                     <TableCell className="block p-0 md:table-cell md:w-[30%] md:p-3">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <p className="font-medium">
-                                                {user.displayName}
-                                            </p>
+                                        <div className="flex flex-wrap items-start gap-2">
+                                            <button
+                                                type="button"
+                                                aria-label={`${user.displayName} @${user.username} 사용자 수정`}
+                                                className="min-w-0 text-left hover:underline"
+                                                onClick={() =>
+                                                    setEditingUser(user)
+                                                }
+                                            >
+                                                <span className="block font-medium">
+                                                    {user.displayName}
+                                                </span>
+                                                <span className="block text-xs text-muted-foreground">
+                                                    @{user.username}
+                                                </span>
+                                                {user.department ? (
+                                                    <span className="block text-xs text-muted-foreground">
+                                                        {user.department}
+                                                    </span>
+                                                ) : null}
+                                            </button>
                                             {user.mustChangePassword ? (
                                                 <Badge
                                                     variant="outline"
@@ -362,33 +214,14 @@ export const AdminUsersPage = () => {
                                                 </Badge>
                                             ) : null}
                                         </div>
-                                        <p className="text-xs text-muted-foreground">
-                                            @{user.username}
-                                        </p>
                                     </TableCell>
                                     <TableCell className="flex items-center justify-between gap-3 p-0 md:table-cell md:w-[22%] md:p-3">
                                         <span className="text-xs font-medium text-muted-foreground md:hidden">
                                             역할
                                         </span>
-                                        <select
-                                            aria-label={`${user.username} 역할`}
-                                            className="h-8 rounded-md border bg-background px-2 text-sm"
-                                            value={user.role}
-                                            onChange={(event) =>
-                                                void updateUser(user.id, {
-                                                    role: event.target
-                                                        .value as UserRole,
-                                                })
-                                            }
-                                        >
-                                            <option value="ADMIN">ADMIN</option>
-                                            <option value="PUBLISHER">
-                                                PUBLISHER
-                                            </option>
-                                            <option value="VIEWER">
-                                                VIEWER
-                                            </option>
-                                        </select>
+                                        <Badge variant="outline">
+                                            {user.role}
+                                        </Badge>
                                     </TableCell>
                                     <TableCell className="flex items-center justify-between gap-3 p-0 md:table-cell md:w-[14%] md:p-3">
                                         <span className="text-xs font-medium text-muted-foreground md:hidden">
@@ -427,15 +260,10 @@ export const AdminUsersPage = () => {
                                             type="button"
                                             size="sm"
                                             variant="secondary"
-                                            onClick={() =>
-                                                void updateUser(user.id, {
-                                                    active: !user.active,
-                                                })
-                                            }
+                                            aria-label={`${user.username} 수정`}
+                                            onClick={() => setEditingUser(user)}
                                         >
-                                            {user.active
-                                                ? '비활성화'
-                                                : '활성화'}
+                                            수정
                                         </Button>
                                     </TableCell>
                                 </TableRow>
@@ -454,6 +282,23 @@ export const AdminUsersPage = () => {
                     </Table>
                 </CardContent>
             </Card>
+
+            {editingUser ? (
+                <UserEditDialog
+                    key={editingUser.id}
+                    user={editingUser}
+                    onUpdated={(updated) => {
+                        setUsers((current) =>
+                            current.map((user) =>
+                                user.id === updated.id ? updated : user
+                            )
+                        );
+                        setEditingUser(null);
+                        setError('');
+                    }}
+                    onClose={() => setEditingUser(null)}
+                />
+            ) : null}
 
             {pageCount > 1 ? (
                 <Pagination>
