@@ -45,7 +45,9 @@ export const GroupMembersDialog = ({
             users.map((user) => ({
                 id: user.id,
                 primary: user.displayName,
-                secondary: `@${user.username}`,
+                secondary: [`@${user.username}`, user.department]
+                    .filter(Boolean)
+                    .join(' · '),
                 badges: [user.role, ...(!user.active ? ['비활성'] : [])],
                 disabled: !user.active && !initialIds.has(user.id),
             })),

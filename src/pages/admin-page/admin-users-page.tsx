@@ -161,29 +161,25 @@ export const AdminUsersPage = () => {
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="overflow-x-auto p-0">
-                    <Table className="block md:table md:min-w-[760px] md:table-fixed">
-                        <TableHeader className="hidden md:table-header-group">
-                            <TableRow>
-                                <TableHead className="w-[30%]">
-                                    사용자
-                                </TableHead>
-                                <TableHead className="w-[22%]">역할</TableHead>
-                                <TableHead className="w-[14%]">상태</TableHead>
-                                <TableHead className="w-[18%]">
-                                    생성일
-                                </TableHead>
-                                <TableHead className="w-[16%] text-right">
+                    <Table className="block md:min-w-[760px]">
+                        <TableHeader className="hidden md:block">
+                            <TableRow className="grid grid-cols-[minmax(220px,1fr)_120px_90px_120px_64px] items-center gap-4 px-6">
+                                <TableHead className="px-0">사용자</TableHead>
+                                <TableHead className="px-0">역할</TableHead>
+                                <TableHead className="px-0">상태</TableHead>
+                                <TableHead className="px-0">생성일</TableHead>
+                                <TableHead className="px-0 text-right">
                                     관리
                                 </TableHead>
                             </TableRow>
                         </TableHeader>
-                        <TableBody className="block md:table-row-group">
+                        <TableBody className="block">
                             {visible.map((user) => (
                                 <TableRow
                                     key={user.id}
-                                    className="block space-y-3 p-4 md:table-row md:space-y-0 md:p-0"
+                                    className="block space-y-3 px-6 py-4 md:grid md:grid-cols-[minmax(220px,1fr)_120px_90px_120px_64px] md:items-center md:gap-4 md:space-y-0"
                                 >
-                                    <TableCell className="block p-0 md:table-cell md:w-[30%] md:p-3">
+                                    <TableCell className="block p-0">
                                         <div className="flex flex-wrap items-start gap-2">
                                             <button
                                                 type="button"
@@ -215,7 +211,7 @@ export const AdminUsersPage = () => {
                                             ) : null}
                                         </div>
                                     </TableCell>
-                                    <TableCell className="flex items-center justify-between gap-3 p-0 md:table-cell md:w-[22%] md:p-3">
+                                    <TableCell className="flex items-center justify-between gap-3 p-0 md:block">
                                         <span className="text-xs font-medium text-muted-foreground md:hidden">
                                             역할
                                         </span>
@@ -223,7 +219,7 @@ export const AdminUsersPage = () => {
                                             {user.role}
                                         </Badge>
                                     </TableCell>
-                                    <TableCell className="flex items-center justify-between gap-3 p-0 md:table-cell md:w-[14%] md:p-3">
+                                    <TableCell className="flex items-center justify-between gap-3 p-0 md:block">
                                         <span className="text-xs font-medium text-muted-foreground md:hidden">
                                             상태
                                         </span>
@@ -242,7 +238,7 @@ export const AdminUsersPage = () => {
                                             {user.active ? '활성' : '비활성'}
                                         </Badge>
                                     </TableCell>
-                                    <TableCell className="flex items-center justify-between gap-3 p-0 text-muted-foreground md:table-cell md:w-[18%] md:p-3">
+                                    <TableCell className="flex items-center justify-between gap-3 p-0 text-muted-foreground md:block">
                                         <span className="text-xs font-medium md:hidden">
                                             생성일
                                         </span>
@@ -252,7 +248,7 @@ export const AdminUsersPage = () => {
                                             ).toLocaleDateString('ko-KR')}
                                         </span>
                                     </TableCell>
-                                    <TableCell className="flex items-center justify-between gap-3 p-0 md:table-cell md:w-[16%] md:p-3 md:text-right">
+                                    <TableCell className="flex items-center justify-between gap-3 p-0 md:flex md:justify-end">
                                         <span className="text-xs font-medium text-muted-foreground md:hidden">
                                             관리
                                         </span>

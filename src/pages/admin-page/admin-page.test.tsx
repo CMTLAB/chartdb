@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { expect, it } from 'vitest';
 
@@ -28,5 +28,13 @@ it('shows the admin sections and selected page', () => {
     expect(
         screen.getAllByRole('link', { name: '토큰 관리' })[0]
     ).toHaveAttribute('href', '/admin/tokens');
+    const navigation = screen.getAllByRole('navigation', {
+        name: '관리 메뉴',
+    })[0];
+    expect(
+        within(navigation)
+            .getAllByRole('link')
+            .map((link) => link.textContent)
+    ).toEqual(['ERD 관리', '그룹 관리', '사용자 관리', '토큰 관리']);
     expect(screen.getByText('ERD 목록')).toBeVisible();
 });

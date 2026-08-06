@@ -6,13 +6,11 @@ import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useLocalConfig } from '@/hooks/use-local-config';
 import { FullScreenLoaderProvider } from '@/context/full-screen-spinner-context/full-screen-spinner-provider';
 import { LayoutProvider } from '@/context/layout-context/layout-provider';
-import { LocalConfigProvider } from '@/context/local-config-context/local-config-provider';
 import { StorageProvider } from '@/context/storage-context/storage-provider';
 import { ConfigProvider } from '@/context/config-context/config-provider';
 import { RedoUndoStackProvider } from '@/context/history-context/redo-undo-stack-provider';
 import { ChartDBProvider } from '@/context/chartdb-context/chartdb-provider';
 import { HistoryProvider } from '@/context/history-context/history-provider';
-import { ThemeProvider } from '@/context/theme-context/theme-provider';
 import { ReactFlowProvider } from '@xyflow/react';
 import { ExportImageProvider } from '@/context/export-image-context/export-image-provider';
 import { DialogProvider } from '@/context/dialog-context/dialog-provider';
@@ -116,42 +114,38 @@ export const EditorPage: React.FC = () => {
     const { user } = useAuth();
 
     return (
-        <LocalConfigProvider>
-            <ThemeProvider>
-                <FullScreenLoaderProvider>
-                    <LayoutProvider>
-                        <StorageProvider>
-                            <ConfigProvider>
-                                <RedoUndoStackProvider>
-                                    <DiffProvider>
-                                        <ChartDBProvider
-                                            readonly={user?.role === 'VIEWER'}
-                                        >
-                                            <DiagramFilterProvider>
-                                                <HistoryProvider>
-                                                    <ReactFlowProvider>
-                                                        <CanvasProvider>
-                                                            <ExportImageProvider>
-                                                                <AlertProvider>
-                                                                    <DialogProvider>
-                                                                        <KeyboardShortcutsProvider>
-                                                                            <EditorPageComponent />
-                                                                        </KeyboardShortcutsProvider>
-                                                                    </DialogProvider>
-                                                                </AlertProvider>
-                                                            </ExportImageProvider>
-                                                        </CanvasProvider>
-                                                    </ReactFlowProvider>
-                                                </HistoryProvider>
-                                            </DiagramFilterProvider>
-                                        </ChartDBProvider>
-                                    </DiffProvider>
-                                </RedoUndoStackProvider>
-                            </ConfigProvider>
-                        </StorageProvider>
-                    </LayoutProvider>
-                </FullScreenLoaderProvider>
-            </ThemeProvider>
-        </LocalConfigProvider>
+        <FullScreenLoaderProvider>
+            <LayoutProvider>
+                <StorageProvider>
+                    <ConfigProvider>
+                        <RedoUndoStackProvider>
+                            <DiffProvider>
+                                <ChartDBProvider
+                                    readonly={user?.role === 'VIEWER'}
+                                >
+                                    <DiagramFilterProvider>
+                                        <HistoryProvider>
+                                            <ReactFlowProvider>
+                                                <CanvasProvider>
+                                                    <ExportImageProvider>
+                                                        <AlertProvider>
+                                                            <DialogProvider>
+                                                                <KeyboardShortcutsProvider>
+                                                                    <EditorPageComponent />
+                                                                </KeyboardShortcutsProvider>
+                                                            </DialogProvider>
+                                                        </AlertProvider>
+                                                    </ExportImageProvider>
+                                                </CanvasProvider>
+                                            </ReactFlowProvider>
+                                        </HistoryProvider>
+                                    </DiagramFilterProvider>
+                                </ChartDBProvider>
+                            </DiffProvider>
+                        </RedoUndoStackProvider>
+                    </ConfigProvider>
+                </StorageProvider>
+            </LayoutProvider>
+        </FullScreenLoaderProvider>
     );
 };

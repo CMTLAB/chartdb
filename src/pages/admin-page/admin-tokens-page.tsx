@@ -202,30 +202,30 @@ export const AdminTokensPage = () => {
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="overflow-x-auto p-0">
-                    <Table className="block md:table md:min-w-[900px] md:table-fixed">
-                        <TableHeader className="hidden md:table-header-group">
-                            <TableRow>
-                                <TableHead className="w-1/5">토큰</TableHead>
-                                <TableHead className="w-1/4">소유자</TableHead>
-                                <TableHead className="w-[12%]">상태</TableHead>
-                                <TableHead className="w-[28%]">날짜</TableHead>
-                                <TableHead className="w-[15%] text-right">
+                    <Table className="block md:min-w-[900px]">
+                        <TableHeader className="hidden md:block">
+                            <TableRow className="grid grid-cols-[minmax(180px,1fr)_220px_90px_240px_64px] items-center gap-4 px-6">
+                                <TableHead className="px-0">토큰</TableHead>
+                                <TableHead className="px-0">소유자</TableHead>
+                                <TableHead className="px-0">상태</TableHead>
+                                <TableHead className="px-0">날짜</TableHead>
+                                <TableHead className="px-0 text-right">
                                     관리
                                 </TableHead>
                             </TableRow>
                         </TableHeader>
-                        <TableBody className="block md:table-row-group">
+                        <TableBody className="block">
                             {visible.map((token) => {
                                 const currentStatus = tokenStatus(token);
                                 return (
                                     <TableRow
                                         key={token.id}
-                                        className="block space-y-3 p-4 md:table-row md:space-y-0 md:p-0"
+                                        className="block space-y-3 px-6 py-4 md:grid md:grid-cols-[minmax(180px,1fr)_220px_90px_240px_64px] md:items-center md:gap-4 md:space-y-0"
                                     >
-                                        <TableCell className="block p-0 font-medium md:table-cell md:w-1/5 md:p-3">
+                                        <TableCell className="block p-0 font-medium">
                                             {token.label}
                                         </TableCell>
-                                        <TableCell className="flex items-start justify-between gap-3 p-0 md:table-cell md:w-1/4 md:p-3">
+                                        <TableCell className="flex items-start justify-between gap-3 p-0 md:block">
                                             <span className="text-xs font-medium text-muted-foreground md:hidden">
                                                 소유자
                                             </span>
@@ -249,7 +249,7 @@ export const AdminTokensPage = () => {
                                                 ) : null}
                                             </div>
                                         </TableCell>
-                                        <TableCell className="flex items-center justify-between gap-3 p-0 md:table-cell md:w-[12%] md:p-3">
+                                        <TableCell className="flex items-center justify-between gap-3 p-0 md:block">
                                             <span className="text-xs font-medium text-muted-foreground md:hidden">
                                                 상태
                                             </span>
@@ -268,7 +268,7 @@ export const AdminTokensPage = () => {
                                                 {statusLabel[currentStatus]}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell className="flex items-start justify-between gap-3 p-0 text-xs text-muted-foreground md:table-cell md:w-[28%] md:p-3">
+                                        <TableCell className="flex items-start justify-between gap-3 p-0 text-xs text-muted-foreground md:block">
                                             <span className="font-medium md:hidden">
                                                 날짜
                                             </span>
@@ -296,7 +296,7 @@ export const AdminTokensPage = () => {
                                                 </p>
                                             </div>
                                         </TableCell>
-                                        <TableCell className="flex items-center justify-between gap-3 p-0 md:table-cell md:w-[15%] md:p-3 md:text-right">
+                                        <TableCell className="flex items-center justify-between gap-3 p-0 md:flex md:justify-end">
                                             <span className="text-xs font-medium text-muted-foreground md:hidden">
                                                 관리
                                             </span>

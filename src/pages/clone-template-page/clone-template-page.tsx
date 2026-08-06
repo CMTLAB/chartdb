@@ -5,9 +5,7 @@ import type { TemplatePageLoaderData } from '../template-page/template-page';
 import { convertTemplateToNewDiagram } from '@/templates-data/template-utils';
 import type { Diagram } from '@/lib/domain/diagram';
 import { useStorage } from '@/hooks/use-storage';
-import { LocalConfigProvider } from '@/context/local-config-context/local-config-provider';
 import { StorageProvider } from '@/context/storage-context/storage-provider';
-import { ThemeProvider } from '@/context/theme-context/theme-provider';
 
 export const CloneTemplateComponent: React.FC = () => {
     const navigate = useNavigate();
@@ -58,11 +56,7 @@ export const CloneTemplateComponent: React.FC = () => {
 };
 
 export const CloneTemplatePage: React.FC = () => (
-    <LocalConfigProvider>
-        <StorageProvider>
-            <ThemeProvider>
-                <CloneTemplateComponent />
-            </ThemeProvider>
-        </StorageProvider>
-    </LocalConfigProvider>
+    <StorageProvider>
+        <CloneTemplateComponent />
+    </StorageProvider>
 );

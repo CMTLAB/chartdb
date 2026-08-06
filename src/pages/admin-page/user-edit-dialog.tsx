@@ -75,8 +75,8 @@ export const UserEditDialog = ({
                         <DialogTitle>사용자 수정</DialogTitle>
                         <DialogDescription>
                             저장할 때 사용자 정보가 반영됩니다. 임시 비밀번호를
-                            입력하면 기존 세션이 종료되고 다음 로그인에서 변경을
-                            요구합니다.
+                            생성해 저장하면 기존 세션이 종료되고 다음 로그인에서
+                            변경을 요구합니다.
                         </DialogDescription>
                     </DialogHeader>
                     <label className="block space-y-1 text-sm">
@@ -138,6 +138,7 @@ export const UserEditDialog = ({
                         value={temporaryPassword}
                         onChange={setTemporaryPassword}
                         disabled={saving}
+                        generatedOnly
                     />
                     {error ? (
                         <p role="alert" className="text-sm text-destructive">

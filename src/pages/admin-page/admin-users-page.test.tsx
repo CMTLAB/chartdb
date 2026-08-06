@@ -133,6 +133,18 @@ it('uses a compact responsive row and subdued active status', async () => {
         'bg-emerald-500/15',
         'text-emerald-700'
     );
+    expect(row).toHaveClass(
+        'px-6',
+        'md:grid',
+        'md:grid-cols-[minmax(220px,1fr)_120px_90px_120px_64px]'
+    );
+    const headerRow = screen
+        .getByRole('columnheader', { name: '사용자' })
+        .closest('tr');
+    expect(headerRow).toHaveClass(
+        'px-6',
+        'grid-cols-[minmax(220px,1fr)_120px_90px_120px_64px]'
+    );
 });
 
 it('creates a user in a dialog and adds the returned identity', async () => {
@@ -207,6 +219,9 @@ it('stages user changes in a dialog and applies them only on save', async () => 
         })
     );
     const dialog = screen.getByRole('dialog', { name: '사용자 수정' });
+    expect(
+        within(dialog).queryByLabelText('임시 비밀번호')
+    ).not.toBeInTheDocument();
     await user.clear(within(dialog).getByLabelText('표시 이름'));
     await user.type(within(dialog).getByLabelText('표시 이름'), 'Alex Park');
     await user.clear(within(dialog).getByLabelText('부서명'));
@@ -239,6 +254,7 @@ it('stages user changes in a dialog and applies them only on save', async () => 
             }),
         })
     );
+    expect(screen.queryByText('비밀번호 변경 대기')).not.toBeInTheDocument();
 });
 
 it('includes a generated temporary password only when resetting it', async () => {
@@ -251,14 +267,15 @@ it('includes a generated temporary password only when resetting it', async () =>
         })
     );
     const dialog = screen.getByRole('dialog', { name: '사용자 수정' });
+    expect(within(dialog).queryByLabelText('임시 비밀번호')).toBeNull();
     await user.click(
         within(dialog).getByRole('button', {
             name: '임시 비밀번호 생성',
         })
     );
-    const password = (
-        within(dialog).getByLabelText('임시 비밀번호') as HTMLInputElement
-    ).value;
+    const passwordField = within(dialog).getByLabelText('임시 비밀번호');
+    expect(passwordField).toHaveAttribute('readonly');
+    const password = (passwordField as HTMLInputElement).value;
     expect(password).toHaveLength(20);
     await user.click(within(dialog).getByRole('button', { name: '저장' }));
     await waitFor(() =>

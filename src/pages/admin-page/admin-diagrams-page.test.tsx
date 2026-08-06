@@ -12,7 +12,7 @@ const users: AdminUser[] = [
         id: 'publisher-id',
         username: 'alice',
         displayName: 'Alice Park',
-        department: null,
+        department: 'Platform',
         role: 'PUBLISHER',
         mustChangePassword: false,
         active: true,
@@ -22,7 +22,7 @@ const users: AdminUser[] = [
         id: 'viewer-id',
         username: 'alex.finance',
         displayName: 'Alex Kim',
-        department: null,
+        department: 'Accounting',
         role: 'VIEWER',
         mustChangePassword: false,
         active: true,
@@ -32,7 +32,7 @@ const users: AdminUser[] = [
         id: 'inactive-id',
         username: 'alex.sales',
         displayName: 'Alex Kim',
-        department: null,
+        department: 'Sales',
         role: 'VIEWER',
         mustChangePassword: false,
         active: false,
@@ -145,6 +145,27 @@ it('disambiguates duplicate ERD names and searches by creator or short id', asyn
     expect(screen.getAllByText('@bob · #98765432')[0]).toBeVisible();
 });
 
+it('shows and searches departments for ERD user assignments', async () => {
+    mockApi();
+    const user = userEvent.setup();
+    render(<AdminDiagramsPage />);
+
+    await user.click(await screen.findByRole('button', { name: '권한 편집' }));
+    expect(screen.getByText('@alice · Platform')).toBeVisible();
+    await user.type(
+        screen.getByRole('searchbox', { name: '게시자 검색' }),
+        'Platform'
+    );
+    expect(screen.getByText('Alice Park')).toBeVisible();
+
+    await user.click(screen.getByRole('tab', { name: '직접 열람' }));
+    const search = screen.getByRole('searchbox', { name: '사용자 검색' });
+    await user.clear(search);
+    await user.type(search, 'Accounting');
+    expect(screen.getByText('@alex.finance · Accounting')).toBeVisible();
+    expect(screen.queryByText('@alex.sales · Sales')).not.toBeInTheDocument();
+});
+
 it('stages distinguishable access selections and sends one batch request on save', async () => {
     const fetchMock = mockApi();
     const user = userEvent.setup();
@@ -154,10 +175,10 @@ it('stages distinguishable access selections and sends one batch request on save
     await user.click(screen.getByRole('tab', { name: '직접 열람' }));
 
     const activeViewer = screen.getByRole('button', {
-        name: 'Alex Kim @alex.finance 추가',
+        name: 'Alex Kim @alex.finance · Accounting 추가',
     });
     const inactiveViewer = screen.getByRole('button', {
-        name: 'Alex Kim @alex.sales 제거',
+        name: 'Alex Kim @alex.sales · Sales 제거',
     });
     expect(inactiveViewer).toBeEnabled();
     expect(
@@ -194,7 +215,7 @@ it('keeps the access draft open when saving fails', async () => {
     await user.click(await screen.findByRole('button', { name: '권한 편집' }));
     await user.click(screen.getByRole('tab', { name: '직접 열람' }));
     const activeViewer = screen.getByRole('button', {
-        name: 'Alex Kim @alex.finance 추가',
+        name: 'Alex Kim @alex.finance · Accounting 추가',
     });
     await user.click(activeViewer);
     await user.click(screen.getByRole('button', { name: '변경사항 저장' }));
@@ -203,7 +224,7 @@ it('keeps the access draft open when saving fails', async () => {
     expect(screen.getByRole('dialog')).toBeVisible();
     expect(
         screen.getByRole('button', {
-            name: 'Alex Kim @alex.finance 제거',
+            name: 'Alex Kim @alex.finance · Accounting 제거',
         })
     ).toBeEnabled();
 });
@@ -254,7 +275,9 @@ it('asks before discarding a changed access draft', async () => {
     await user.click(await screen.findByRole('button', { name: '권한 편집' }));
     await user.click(screen.getByRole('tab', { name: '직접 열람' }));
     await user.click(
-        screen.getByRole('button', { name: 'Alex Kim @alex.finance 추가' })
+        screen.getByRole('button', {
+            name: 'Alex Kim @alex.finance · Accounting 추가',
+        })
     );
     await user.click(screen.getByRole('button', { name: '취소' }));
 
@@ -266,7 +289,7 @@ it('asks before discarding a changed access draft', async () => {
     await user.click(screen.getByRole('button', { name: '계속 편집' }));
     expect(
         screen.getByRole('button', {
-            name: 'Alex Kim @alex.finance 제거',
+            name: 'Alex Kim @alex.finance · Accounting 제거',
         })
     ).toBeEnabled();
 

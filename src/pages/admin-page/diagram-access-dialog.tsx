@@ -46,7 +46,9 @@ const sameIds = (left: Set<string>, right: Set<string>) =>
 const userOption = (user: AdminUser, disabled: boolean): AssignmentOption => ({
     id: user.id,
     primary: user.displayName,
-    secondary: `@${user.username}`,
+    secondary: [`@${user.username}`, user.department]
+        .filter(Boolean)
+        .join(' · '),
     badges: [user.role, ...(!user.active ? ['비활성'] : [])],
     disabled,
 });

@@ -39,6 +39,28 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
+it('uses the same compact padded list layout as user management', async () => {
+    vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(response({ tokens: [activeToken] }))
+    );
+    render(<AdminTokensPage />);
+
+    const row = (await screen.findByText('nightly-import')).closest('tr');
+    expect(row).toHaveClass(
+        'px-6',
+        'md:grid',
+        'md:grid-cols-[minmax(180px,1fr)_220px_90px_240px_64px]'
+    );
+    const header = screen
+        .getByRole('columnheader', { name: '토큰' })
+        .closest('tr');
+    expect(header).toHaveClass(
+        'px-6',
+        'grid-cols-[minmax(180px,1fr)_220px_90px_240px_64px]'
+    );
+});
+
 it('shows token owners and filters by owner and status', async () => {
     vi.stubGlobal(
         'fetch',

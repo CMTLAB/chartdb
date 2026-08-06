@@ -10,6 +10,7 @@ const users = [
         id: 'active-id',
         username: 'alex.finance',
         displayName: 'Alex Kim',
+        department: 'Accounting',
         role: 'VIEWER',
         mustChangePassword: false,
         active: true,
@@ -19,6 +20,7 @@ const users = [
         id: 'inactive-member-id',
         username: 'alex.sales',
         displayName: 'Alex Kim',
+        department: 'Sales',
         role: 'VIEWER',
         mustChangePassword: false,
         active: false,
@@ -28,6 +30,7 @@ const users = [
         id: 'inactive-other-id',
         username: 'inactive.other',
         displayName: 'Inactive Other',
+        department: null,
         role: 'VIEWER',
         mustChangePassword: false,
         active: false,
@@ -115,6 +118,23 @@ it('shows the selected group member and ERD grant counts', async () => {
     ).toBeVisible();
 });
 
+it('shows and searches user departments while editing members', async () => {
+    mockApi();
+    const user = userEvent.setup();
+    render(<AdminGroupsPage />);
+
+    await user.click(
+        await screen.findByRole('button', { name: '구성원 편집' })
+    );
+    expect(screen.getByText('@alex.finance · Accounting')).toBeVisible();
+    await user.type(
+        screen.getByRole('searchbox', { name: '구성원 검색' }),
+        'Accounting'
+    );
+    expect(screen.getByText('Alex Kim')).toBeVisible();
+    expect(screen.queryByText('@alex.sales · Sales')).not.toBeInTheDocument();
+});
+
 it('stages distinguishable members and saves them in one request', async () => {
     const fetchMock = mockApi();
     const user = userEvent.setup();
@@ -124,10 +144,10 @@ it('stages distinguishable members and saves them in one request', async () => {
         await screen.findByRole('button', { name: '구성원 편집' })
     );
     const activeUser = screen.getByRole('button', {
-        name: 'Alex Kim @alex.finance 추가',
+        name: 'Alex Kim @alex.finance · Accounting 추가',
     });
     const inactiveMember = screen.getByRole('button', {
-        name: 'Alex Kim @alex.sales 제거',
+        name: 'Alex Kim @alex.sales · Sales 제거',
     });
     const inactiveOther = screen.getByRole('button', {
         name: 'Inactive Other @inactive.other 추가',
@@ -164,7 +184,7 @@ it('keeps the member draft open after a failed save', async () => {
         await screen.findByRole('button', { name: '구성원 편집' })
     );
     const activeUser = screen.getByRole('button', {
-        name: 'Alex Kim @alex.finance 추가',
+        name: 'Alex Kim @alex.finance · Accounting 추가',
     });
     await user.click(activeUser);
     await user.click(screen.getByRole('button', { name: '변경사항 저장' }));
@@ -175,7 +195,7 @@ it('keeps the member draft open after a failed save', async () => {
     expect(screen.getByRole('dialog')).toBeVisible();
     expect(
         screen.getByRole('button', {
-            name: 'Alex Kim @alex.finance 제거',
+            name: 'Alex Kim @alex.finance · Accounting 제거',
         })
     ).toBeEnabled();
 });
@@ -189,7 +209,9 @@ it('asks before discarding a changed member draft', async () => {
         await screen.findByRole('button', { name: '구성원 편집' })
     );
     await user.click(
-        screen.getByRole('button', { name: 'Alex Kim @alex.finance 추가' })
+        screen.getByRole('button', {
+            name: 'Alex Kim @alex.finance · Accounting 추가',
+        })
     );
     await user.click(screen.getByRole('button', { name: '취소' }));
 

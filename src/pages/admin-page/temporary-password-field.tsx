@@ -16,14 +16,41 @@ export const TemporaryPasswordField = ({
     onChange,
     required = false,
     disabled = false,
+    generatedOnly = false,
 }: {
     value: string;
     onChange: (value: string) => void;
     required?: boolean;
     disabled?: boolean;
+    generatedOnly?: boolean;
 }) => {
     const id = useId();
     const [visible, setVisible] = useState(false);
+    const generate = () => {
+        onChange(generateTemporaryPassword());
+        setVisible(true);
+    };
+
+    if (generatedOnly) {
+        return (
+            <div className="space-y-2 text-sm">
+                {value ? (
+                    <label className="block space-y-1">
+                        <span>임시 비밀번호</span>
+                        <Input value={value} readOnly autoComplete="off" />
+                    </label>
+                ) : null}
+                <Button
+                    type="button"
+                    variant="outline"
+                    disabled={disabled}
+                    onClick={generate}
+                >
+                    {value ? '임시 비밀번호 다시 생성' : '임시 비밀번호 생성'}
+                </Button>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-2 text-sm">
@@ -51,10 +78,7 @@ export const TemporaryPasswordField = ({
                 type="button"
                 variant="outline"
                 disabled={disabled}
-                onClick={() => {
-                    onChange(generateTemporaryPassword());
-                    setVisible(true);
-                }}
+                onClick={generate}
             >
                 임시 비밀번호 생성
             </Button>
