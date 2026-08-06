@@ -1,0 +1,42 @@
+services:
+  chartdb:
+    image: "chartdb-web:${RELEASE_TAG:?RELEASE_TAG is required}"
+    ports:
+      - "9092:80"
+    environment:
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_API_ENDPOINT: "${OPENAI_API_ENDPOINT:-}"
+      LLM_MODEL_NAME: "${LLM_MODEL_NAME:-}"
+      HIDE_CHARTDB_CLOUD: "${HIDE_CHARTDB_CLOUD:-true}"
+      DISABLE_ANALYTICS: "${DISABLE_ANALYTICS:-true}"
+    depends_on:
+      access-server:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+
+  access-server:
+    image: "chartdb-access:${RELEASE_TAG:?RELEASE_TAG is required}"
+    env_file:
+      - .env
+    environment:
+      DATABASE_FILE: /data/chartdb.sqlite
+      NODE_ENV: production
+      COOKIE_SECURE: "${CHARTDB_COOKIE_SECURE:-false}"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8788/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
