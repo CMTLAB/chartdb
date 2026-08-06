@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { canPublishDiagram, canReadDiagram, requireRole } from './access.mjs';
+import { appendAudit } from './audit.mjs';
 import { requireReadyUser } from './auth.mjs';
 import { isDiagramShaped } from './diagram-validation.mjs';
 import { metadataToDiagramJSON } from '../convert-bundle.mjs';
@@ -401,18 +402,33 @@ export const registerDiagramRoutes = async (app, { db, authenticateActor }) => {
         '/api/admin/diagrams/:diagramId/archive',
         { preHandler: adminOnly },
         async (request, reply) => {
-            const result = db
-                .prepare(
-                    `UPDATE diagrams SET archived_at = ?, updated_at = ?
-                     WHERE id = ? AND archived_at IS NULL`
-                )
-                .run(
-                    new Date().toISOString(),
-                    new Date().toISOString(),
-                    request.params.diagramId
-                );
-            if (!result.changes) {
-                return reply.code(404).send({ error: 'Diagram not found.' });
+            const now = new Date().toISOString();
+            db.exec('BEGIN IMMEDIATE');
+            try {
+                const result = db
+                    .prepare(
+                        `UPDATE diagrams SET archived_at = ?, updated_at = ?
+                         WHERE id = ? AND archived_at IS NULL`
+                    )
+                    .run(now, now, request.params.diagramId);
+                if (!result.changes) {
+                    db.exec('ROLLBACK');
+                    return reply
+                        .code(404)
+                        .send({ error: 'Diagram not found.' });
+                }
+                appendAudit(db, {
+                    actorUserId: request.user.id,
+                    action: 'DIAGRAM_ARCHIVED',
+                    targetType: 'DIAGRAM',
+                    targetId: request.params.diagramId,
+                    detail: { archived: true },
+                    at: now,
+                });
+                db.exec('COMMIT');
+            } catch (error) {
+                db.exec('ROLLBACK');
+                throw error;
             }
             return reply.code(204).send();
         }
@@ -421,14 +437,33 @@ export const registerDiagramRoutes = async (app, { db, authenticateActor }) => {
         '/api/admin/diagrams/:diagramId/unarchive',
         { preHandler: adminOnly },
         async (request, reply) => {
-            const result = db
-                .prepare(
-                    `UPDATE diagrams SET archived_at = NULL, updated_at = ?
-                     WHERE id = ? AND archived_at IS NOT NULL`
-                )
-                .run(new Date().toISOString(), request.params.diagramId);
-            if (!result.changes) {
-                return reply.code(404).send({ error: 'Diagram not found.' });
+            const now = new Date().toISOString();
+            db.exec('BEGIN IMMEDIATE');
+            try {
+                const result = db
+                    .prepare(
+                        `UPDATE diagrams SET archived_at = NULL, updated_at = ?
+                         WHERE id = ? AND archived_at IS NOT NULL`
+                    )
+                    .run(now, request.params.diagramId);
+                if (!result.changes) {
+                    db.exec('ROLLBACK');
+                    return reply
+                        .code(404)
+                        .send({ error: 'Diagram not found.' });
+                }
+                appendAudit(db, {
+                    actorUserId: request.user.id,
+                    action: 'DIAGRAM_UNARCHIVED',
+                    targetType: 'DIAGRAM',
+                    targetId: request.params.diagramId,
+                    detail: { archived: false },
+                    at: now,
+                });
+                db.exec('COMMIT');
+            } catch (error) {
+                db.exec('ROLLBACK');
+                throw error;
             }
             return reply.code(204).send();
         }

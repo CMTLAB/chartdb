@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
 import { requireRole } from './access.mjs';
+import {
+    canAddDirectViewer,
+    canAddGroupMember,
+    canAddPublisher,
+    groupExists,
+} from './admin-access.mjs';
+import { appendAudit } from './audit.mjs';
 import { requireReadyUser } from './auth.mjs';
 import { isNonEmptyString, publicUser, trimString } from './http.mjs';
 import { hashPassword } from './security.mjs';
@@ -88,6 +95,20 @@ const idArray = (body, key) => {
     return value;
 };
 
+const sorted = (values) => [...values].sort();
+
+const transact = (db, action) => {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+        const result = action();
+        db.exec('COMMIT');
+        return result;
+    } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+    }
+};
+
 export const registerAdminRoutes = async (app, { db }) => {
     const adminOnly = [
         app.requireSession,
@@ -129,21 +150,32 @@ export const registerAdminRoutes = async (app, { db }) => {
             }
             const id = randomUUID();
             const now = new Date().toISOString();
+            const passwordHash = await hashPassword(password);
             try {
-                db.prepare(
-                    `INSERT INTO users(
-                        id, username, display_name, password_hash, role,
-                        must_change_password, active, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?)`
-                ).run(
-                    id,
-                    username,
-                    displayName,
-                    await hashPassword(password),
-                    role,
-                    now,
-                    now
-                );
+                transact(db, () => {
+                    db.prepare(
+                        `INSERT INTO users(
+                            id, username, display_name, password_hash, role,
+                            must_change_password, active, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?)`
+                    ).run(
+                        id,
+                        username,
+                        displayName,
+                        passwordHash,
+                        role,
+                        now,
+                        now
+                    );
+                    appendAudit(db, {
+                        actorUserId: request.user.id,
+                        action: 'USER_CREATED',
+                        targetType: 'USER',
+                        targetId: id,
+                        detail: { username, displayName, role },
+                        at: now,
+                    });
+                });
             } catch (error) {
                 if (duplicateResponse(error, reply)) return;
                 throw error;
@@ -201,8 +233,7 @@ export const registerAdminRoutes = async (app, { db }) => {
             }
 
             const now = new Date().toISOString();
-            db.exec('BEGIN IMMEDIATE');
-            try {
+            transact(db, () => {
                 db.prepare(
                     `UPDATE users
                      SET display_name = ?, role = ?, active = ?, updated_at = ?
@@ -219,11 +250,22 @@ export const registerAdminRoutes = async (app, { db }) => {
                          WHERE owner_user_id = ? AND revoked_at IS NULL`
                     ).run(now, target.id);
                 }
-                db.exec('COMMIT');
-            } catch (error) {
-                db.exec('ROLLBACK');
-                throw error;
-            }
+                appendAudit(db, {
+                    actorUserId: request.user.id,
+                    action: 'USER_UPDATED',
+                    targetType: 'USER',
+                    targetId: target.id,
+                    detail: {
+                        before: {
+                            displayName: target.display_name,
+                            role: target.role,
+                            active: Boolean(target.active),
+                        },
+                        after: { displayName, role, active },
+                    },
+                    at: now,
+                });
+            });
             return {
                 user: adminUser(
                     db
@@ -252,10 +294,21 @@ export const registerAdminRoutes = async (app, { db }) => {
                     .send({ error: 'Group name is required.' });
             }
             const group = { id: randomUUID(), name };
+            const now = new Date().toISOString();
             try {
-                db.prepare(
-                    'INSERT INTO groups(id, name, created_at) VALUES (?, ?, ?)'
-                ).run(group.id, group.name, new Date().toISOString());
+                transact(db, () => {
+                    db.prepare(
+                        'INSERT INTO groups(id, name, created_at) VALUES (?, ?, ?)'
+                    ).run(group.id, group.name, now);
+                    appendAudit(db, {
+                        actorUserId: request.user.id,
+                        action: 'GROUP_CREATED',
+                        targetType: 'GROUP',
+                        targetId: group.id,
+                        detail: { name },
+                        at: now,
+                    });
+                });
             } catch (error) {
                 if (duplicateResponse(error, reply)) return;
                 throw error;
@@ -288,19 +341,17 @@ export const registerAdminRoutes = async (app, { db }) => {
                     .all(group.id)
                     .map((row) => row.user_id)
             );
-            const activeUser = db.prepare(
-                'SELECT 1 FROM users WHERE id = ? AND active = 1'
-            );
             if (
-                userIds.some((id) => !currentIds.has(id) && !activeUser.get(id))
+                userIds.some(
+                    (id) => !currentIds.has(id) && !canAddGroupMember(db, id)
+                )
             ) {
                 return reply.code(422).send({
                     error: 'One or more members are not allowed.',
                 });
             }
 
-            db.exec('BEGIN IMMEDIATE');
-            try {
+            transact(db, () => {
                 db.prepare('DELETE FROM user_groups WHERE group_id = ?').run(
                     group.id
                 );
@@ -310,11 +361,17 @@ export const registerAdminRoutes = async (app, { db }) => {
                 for (const userId of userIds) {
                     insert.run(group.id, userId);
                 }
-                db.exec('COMMIT');
-            } catch (error) {
-                db.exec('ROLLBACK');
-                throw error;
-            }
+                appendAudit(db, {
+                    actorUserId: request.user.id,
+                    action: 'GROUP_MEMBERS_REPLACED',
+                    targetType: 'GROUP',
+                    targetId: group.id,
+                    detail: {
+                        before: sorted(currentIds),
+                        after: sorted(userIds),
+                    },
+                });
+            });
             return { group: adminGroup(db, group) };
         }
     );
@@ -323,25 +380,60 @@ export const registerAdminRoutes = async (app, { db }) => {
         '/api/admin/groups/:groupId',
         { preHandler: adminOnly },
         async (request, reply) => {
-            const result = db
-                .prepare('DELETE FROM groups WHERE id = ?')
-                .run(request.params.groupId);
-            if (!result.changes) {
+            const group = db
+                .prepare('SELECT * FROM groups WHERE id = ?')
+                .get(request.params.groupId);
+            if (!group) {
                 return reply.code(404).send({ error: 'Group not found.' });
             }
+            const before = adminGroup(db, group);
+            transact(db, () => {
+                db.prepare('DELETE FROM groups WHERE id = ?').run(group.id);
+                appendAudit(db, {
+                    actorUserId: request.user.id,
+                    action: 'GROUP_DELETED',
+                    targetType: 'GROUP',
+                    targetId: group.id,
+                    detail: before,
+                });
+            });
             return reply.code(204).send();
         }
     );
 
-    const associationRoute = ({ path, table, leftColumn, rightColumn }) => {
+    const associationRoute = ({
+        path,
+        table,
+        leftColumn,
+        rightColumn,
+        allowAdd,
+        targetType,
+    }) => {
         app.put(path, { preHandler: adminOnly }, async (request, reply) => {
+            const leftId = request.params[leftColumn.replace('_id', 'Id')];
+            const rightId = request.params[rightColumn.replace('_id', 'Id')];
+            if (!allowAdd(leftId, rightId)) {
+                return reply
+                    .code(422)
+                    .send({ error: 'This assignment is not allowed.' });
+            }
             try {
-                db.prepare(
-                    `INSERT OR IGNORE INTO ${table}(${leftColumn}, ${rightColumn}) VALUES (?, ?)`
-                ).run(
-                    request.params[leftColumn.replace('_id', 'Id')],
-                    request.params[rightColumn.replace('_id', 'Id')]
-                );
+                transact(db, () => {
+                    const result = db
+                        .prepare(
+                            `INSERT OR IGNORE INTO ${table}(${leftColumn}, ${rightColumn}) VALUES (?, ?)`
+                        )
+                        .run(leftId, rightId);
+                    if (result.changes) {
+                        appendAudit(db, {
+                            actorUserId: request.user.id,
+                            action: 'ASSIGNMENT_ADDED',
+                            targetType,
+                            targetId: leftId,
+                            detail: { table, assignedId: rightId },
+                        });
+                    }
+                });
             } catch (error) {
                 if (
                     String(error.message).includes(
@@ -357,12 +449,24 @@ export const registerAdminRoutes = async (app, { db }) => {
             return reply.code(204).send();
         });
         app.delete(path, { preHandler: adminOnly }, async (request, reply) => {
-            db.prepare(
-                `DELETE FROM ${table} WHERE ${leftColumn} = ? AND ${rightColumn} = ?`
-            ).run(
-                request.params[leftColumn.replace('_id', 'Id')],
-                request.params[rightColumn.replace('_id', 'Id')]
-            );
+            const leftId = request.params[leftColumn.replace('_id', 'Id')];
+            const rightId = request.params[rightColumn.replace('_id', 'Id')];
+            transact(db, () => {
+                const result = db
+                    .prepare(
+                        `DELETE FROM ${table} WHERE ${leftColumn} = ? AND ${rightColumn} = ?`
+                    )
+                    .run(leftId, rightId);
+                if (result.changes) {
+                    appendAudit(db, {
+                        actorUserId: request.user.id,
+                        action: 'ASSIGNMENT_REMOVED',
+                        targetType,
+                        targetId: leftId,
+                        detail: { table, assignedId: rightId },
+                    });
+                }
+            });
             return reply.code(204).send();
         });
     };
@@ -407,30 +511,26 @@ export const registerAdminRoutes = async (app, { db }) => {
                 'user_id'
             );
             const currentUsers = currentIds('user_diagram_grants', 'user_id');
-            const validPublisher = db.prepare(
-                "SELECT 1 FROM users WHERE id = ? AND role = 'PUBLISHER' AND active = 1"
+            const currentGroups = currentIds(
+                'group_diagram_grants',
+                'group_id'
             );
-            const validDirectUser = db.prepare(
-                "SELECT 1 FROM users WHERE id = ? AND role <> 'ADMIN' AND active = 1"
-            );
-            const validGroup = db.prepare('SELECT 1 FROM groups WHERE id = ?');
             if (
                 publisherIds.some(
                     (id) =>
-                        !currentPublishers.has(id) && !validPublisher.get(id)
+                        !currentPublishers.has(id) && !canAddPublisher(db, id)
                 ) ||
                 userGrantIds.some(
-                    (id) => !currentUsers.has(id) && !validDirectUser.get(id)
+                    (id) => !currentUsers.has(id) && !canAddDirectViewer(db, id)
                 ) ||
-                groupGrantIds.some((id) => !validGroup.get(id))
+                groupGrantIds.some((id) => !groupExists(db, id))
             ) {
                 return reply.code(422).send({
                     error: 'One or more assignments are not allowed.',
                 });
             }
 
-            db.exec('BEGIN IMMEDIATE');
-            try {
+            transact(db, () => {
                 db.prepare(
                     'DELETE FROM diagram_publishers WHERE diagram_id = ?'
                 ).run(diagram.id);
@@ -458,11 +558,25 @@ export const registerAdminRoutes = async (app, { db }) => {
                 for (const id of groupGrantIds) {
                     insertGroup.run(diagram.id, id);
                 }
-                db.exec('COMMIT');
-            } catch (error) {
-                db.exec('ROLLBACK');
-                throw error;
-            }
+                appendAudit(db, {
+                    actorUserId: request.user.id,
+                    action: 'DIAGRAM_ACCESS_REPLACED',
+                    targetType: 'DIAGRAM',
+                    targetId: diagram.id,
+                    detail: {
+                        before: {
+                            publisherIds: sorted(currentPublishers),
+                            userGrantIds: sorted(currentUsers),
+                            groupGrantIds: sorted(currentGroups),
+                        },
+                        after: {
+                            publisherIds: sorted(publisherIds),
+                            userGrantIds: sorted(userGrantIds),
+                            groupGrantIds: sorted(groupGrantIds),
+                        },
+                    },
+                });
+            });
             return { diagram: adminDiagram(db, diagram) };
         }
     );
@@ -472,29 +586,31 @@ export const registerAdminRoutes = async (app, { db }) => {
         table: 'user_groups',
         leftColumn: 'group_id',
         rightColumn: 'user_id',
+        allowAdd: (_groupId, userId) => canAddGroupMember(db, userId),
+        targetType: 'GROUP',
     });
     associationRoute({
         path: '/api/admin/diagrams/:diagramId/user-grants/:userId',
         table: 'user_diagram_grants',
         leftColumn: 'diagram_id',
         rightColumn: 'user_id',
+        allowAdd: (_diagramId, userId) => canAddDirectViewer(db, userId),
+        targetType: 'DIAGRAM',
     });
     associationRoute({
         path: '/api/admin/diagrams/:diagramId/group-grants/:groupId',
         table: 'group_diagram_grants',
         leftColumn: 'diagram_id',
         rightColumn: 'group_id',
+        allowAdd: (_diagramId, groupId) => groupExists(db, groupId),
+        targetType: 'DIAGRAM',
     });
 
     app.put(
         '/api/admin/diagrams/:diagramId/publishers/:userId',
         { preHandler: adminOnly },
         async (request, reply) => {
-            const publisher = db
-                .prepare(
-                    "SELECT 1 FROM users WHERE id = ? AND role = 'PUBLISHER' AND active = 1"
-                )
-                .get(request.params.userId);
+            const publisher = canAddPublisher(db, request.params.userId);
             const diagram = db
                 .prepare('SELECT 1 FROM diagrams WHERE id = ?')
                 .get(request.params.diagramId);
@@ -503,9 +619,22 @@ export const registerAdminRoutes = async (app, { db }) => {
                     .code(404)
                     .send({ error: 'Publisher or diagram not found.' });
             }
-            db.prepare(
-                'INSERT OR IGNORE INTO diagram_publishers(diagram_id, user_id) VALUES (?, ?)'
-            ).run(request.params.diagramId, request.params.userId);
+            transact(db, () => {
+                const result = db
+                    .prepare(
+                        'INSERT OR IGNORE INTO diagram_publishers(diagram_id, user_id) VALUES (?, ?)'
+                    )
+                    .run(request.params.diagramId, request.params.userId);
+                if (result.changes) {
+                    appendAudit(db, {
+                        actorUserId: request.user.id,
+                        action: 'PUBLISHER_ADDED',
+                        targetType: 'DIAGRAM',
+                        targetId: request.params.diagramId,
+                        detail: { userId: request.params.userId },
+                    });
+                }
+            });
             return reply.code(204).send();
         }
     );
@@ -514,9 +643,22 @@ export const registerAdminRoutes = async (app, { db }) => {
         '/api/admin/diagrams/:diagramId/publishers/:userId',
         { preHandler: adminOnly },
         async (request, reply) => {
-            db.prepare(
-                'DELETE FROM diagram_publishers WHERE diagram_id = ? AND user_id = ?'
-            ).run(request.params.diagramId, request.params.userId);
+            transact(db, () => {
+                const result = db
+                    .prepare(
+                        'DELETE FROM diagram_publishers WHERE diagram_id = ? AND user_id = ?'
+                    )
+                    .run(request.params.diagramId, request.params.userId);
+                if (result.changes) {
+                    appendAudit(db, {
+                        actorUserId: request.user.id,
+                        action: 'PUBLISHER_REMOVED',
+                        targetType: 'DIAGRAM',
+                        targetId: request.params.diagramId,
+                        detail: { userId: request.params.userId },
+                    });
+                }
+            });
             return reply.code(204).send();
         }
     );

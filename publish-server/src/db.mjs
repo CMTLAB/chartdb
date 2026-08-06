@@ -95,6 +95,20 @@ const MIGRATIONS = [
     CREATE INDEX diagram_versions_diagram_id_idx ON diagram_versions(diagram_id, version_no DESC);
     CREATE INDEX api_tokens_owner_idx ON api_tokens(owner_user_id);
     `,
+    `
+    CREATE TABLE audit_log (
+        id TEXT PRIMARY KEY,
+        at TEXT NOT NULL,
+        actor_user_id TEXT NOT NULL REFERENCES users(id),
+        action TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        detail_json TEXT NOT NULL
+    );
+
+    CREATE INDEX audit_log_at_idx ON audit_log(at DESC);
+    CREATE INDEX audit_log_target_idx ON audit_log(target_type, target_id, at DESC);
+    `,
 ];
 
 export const openDatabase = (filename) => {

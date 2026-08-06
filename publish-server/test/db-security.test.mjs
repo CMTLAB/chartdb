@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { appendAudit } from '../src/audit.mjs';
 import { bootstrapAdmin, migrate, openDatabase } from '../src/db.mjs';
 import {
     hashPassword,
@@ -76,4 +77,34 @@ test('password and opaque token hashes verify without storing plaintext', async 
     const secret = newSecret();
     assert.notEqual(hashSecret(secret), secret);
     assert.equal(hashSecret(secret), hashSecret(secret));
+});
+
+test('migration creates append-only audit storage', async () => {
+    const db = openDatabase(':memory:');
+    migrate(db);
+    await bootstrapAdmin(db, {
+        CHARTDB_BOOTSTRAP_ADMIN_USERNAME: 'admin',
+        CHARTDB_BOOTSTRAP_ADMIN_PASSWORD: 'temporary-password-123',
+    });
+    const actorUserId = db.prepare('SELECT id FROM users').get().id;
+
+    appendAudit(db, {
+        actorUserId,
+        action: 'GROUP_MEMBERS_REPLACED',
+        targetType: 'GROUP',
+        targetId: 'group-id',
+        detail: { before: ['a'], after: ['b'] },
+        at: '2026-08-06T00:00:00.000Z',
+    });
+
+    const row = db.prepare('SELECT * FROM audit_log').get();
+    assert.equal(row.at, '2026-08-06T00:00:00.000Z');
+    assert.equal(row.actor_user_id, actorUserId);
+    assert.equal(row.action, 'GROUP_MEMBERS_REPLACED');
+    assert.equal(row.target_type, 'GROUP');
+    assert.equal(row.target_id, 'group-id');
+    assert.deepEqual(JSON.parse(row.detail_json), {
+        before: ['a'],
+        after: ['b'],
+    });
 });

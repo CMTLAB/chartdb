@@ -48,11 +48,16 @@ const setup = async () => {
     db.prepare(
         "UPDATE users SET must_change_password = 0 WHERE username = 'admin'"
     ).run();
+    const admin = db
+        .prepare(
+            "SELECT id, username, role FROM users WHERE username = 'admin'"
+        )
+        .get();
     const publisher = await insertUser(db, 'publisher', 'PUBLISHER');
     const coPublisher = await insertUser(db, 'co-publisher', 'PUBLISHER');
     const outsider = await insertUser(db, 'outsider', 'VIEWER');
     const app = await buildApp({ db, secureCookies: false });
-    return { db, app, publisher, coPublisher, outsider };
+    return { db, app, admin, publisher, coPublisher, outsider };
 };
 
 const cookieFor = async (app, username, password = 'user-password-123') => {
@@ -205,6 +210,59 @@ test('restoring an old version creates a new current version without changing hi
     assert.deepEqual(
         history.json().versions.map((version) => version.source),
         ['RESTORE', 'WEB', 'WEB']
+    );
+    await app.close();
+});
+
+test('archive and unarchive record the administrator actor', async () => {
+    const { app, db, admin, publisher } = await setup();
+    const publisherCookie = await cookieFor(app, publisher.username);
+    const adminCookie = await cookieFor(
+        app,
+        admin.username,
+        'temporary-password-123'
+    );
+    const created = await app.inject({
+        method: 'POST',
+        url: '/api/diagrams',
+        headers: mutationHeaders(publisherCookie),
+        payload: { diagram: diagram('Archived ERD', 'archive') },
+    });
+    const diagramId = created.json().id;
+
+    const archived = await app.inject({
+        method: 'POST',
+        url: `/api/admin/diagrams/${diagramId}/archive`,
+        headers: mutationHeaders(adminCookie),
+    });
+    const unarchived = await app.inject({
+        method: 'POST',
+        url: `/api/admin/diagrams/${diagramId}/unarchive`,
+        headers: mutationHeaders(adminCookie),
+    });
+
+    assert.equal(archived.statusCode, 204);
+    assert.equal(unarchived.statusCode, 204);
+    assert.deepEqual(
+        db
+            .prepare(
+                `SELECT action, actor_user_id, target_id
+                 FROM audit_log ORDER BY rowid`
+            )
+            .all()
+            .map((row) => ({ ...row })),
+        [
+            {
+                action: 'DIAGRAM_ARCHIVED',
+                actor_user_id: admin.id,
+                target_id: diagramId,
+            },
+            {
+                action: 'DIAGRAM_UNARCHIVED',
+                actor_user_id: admin.id,
+                target_id: diagramId,
+            },
+        ]
     );
     await app.close();
 });
