@@ -1,6 +1,16 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/alert-dialog/alert-dialog';
 import { Button } from '@/components/button/button';
 import {
     Card,
@@ -27,6 +37,9 @@ export const VersionsPage = () => {
     const [canPublish, setCanPublish] = useState(false);
     const [versions, setVersions] = useState<VersionItem[]>([]);
     const [error, setError] = useState('');
+    const [restoreTarget, setRestoreTarget] = useState<number | null>(null);
+    const [restoring, setRestoring] = useState(false);
+    const [restoreError, setRestoreError] = useState('');
 
     const load = useCallback(async () => {
         try {
@@ -71,16 +84,27 @@ export const VersionsPage = () => {
     };
 
     const restore = async (version: number) => {
-        if (!window.confirm(`버전 ${version}을 새 버전으로 복원할까요?`))
-            return;
-        await apiFetch(
-            `/api/diagrams/${diagramId}/versions/${version}/restore`,
-            {
-                method: 'POST',
-                body: JSON.stringify({}),
-            }
-        );
-        await load();
+        setRestoring(true);
+        setRestoreError('');
+        try {
+            await apiFetch(
+                `/api/diagrams/${diagramId}/versions/${version}/restore`,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({}),
+                }
+            );
+            await load();
+            setRestoreTarget(null);
+        } catch (restoreFailure) {
+            setRestoreError(
+                restoreFailure instanceof Error
+                    ? restoreFailure.message
+                    : '버전을 복원하지 못했습니다.'
+            );
+        } finally {
+            setRestoring(false);
+        }
     };
 
     return (
@@ -133,9 +157,12 @@ export const VersionsPage = () => {
                                     {canPublish ? (
                                         <Button
                                             type="button"
-                                            onClick={() =>
-                                                void restore(version.version)
-                                            }
+                                            onClick={() => {
+                                                setRestoreError('');
+                                                setRestoreTarget(
+                                                    version.version
+                                                );
+                                            }}
                                         >
                                             이 버전 복원
                                         </Button>
@@ -157,6 +184,53 @@ export const VersionsPage = () => {
                     ) : null}
                 </div>
             </div>
+            <AlertDialog
+                open={restoreTarget !== null}
+                onOpenChange={(nextOpen) => {
+                    if (!nextOpen && !restoring) {
+                        setRestoreTarget(null);
+                        setRestoreError('');
+                    }
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            버전 {restoreTarget} 복원을 진행할까요?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="space-y-2">
+                            <span className="block font-medium text-foreground">
+                                복원하면 선택한 버전이 서버의 새 최신 버전으로
+                                즉시 발행됩니다.
+                            </span>
+                            <span className="block">
+                                필요하면 현재 작업본을 먼저 발행하거나, 이
+                                버전을 JSON으로 다운로드해 별도로 확인하세요.
+                            </span>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    {restoreError ? (
+                        <p role="alert" className="text-sm text-destructive">
+                            {restoreError}
+                        </p>
+                    ) : null}
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={restoring}>
+                            취소
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={restoring}
+                            onClick={(event) => {
+                                event.preventDefault();
+                                if (restoreTarget !== null)
+                                    void restore(restoreTarget);
+                            }}
+                        >
+                            {restoring ? '복원 중…' : '복원 및 즉시 반영'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </main>
     );
 };
