@@ -81,7 +81,10 @@ const response = (body: unknown, status = 200) => ({
     json: async () => body,
 });
 
-const mockApi = (accessStatus = 200) => {
+const mockApi = (
+    accessStatus = 200,
+    pendingAccess?: Promise<ReturnType<typeof response>>
+) => {
     const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
         if (input === '/api/admin/users') return response({ users });
         if (input === '/api/admin/groups')
@@ -97,6 +100,7 @@ const mockApi = (accessStatus = 200) => {
             });
         if (input === '/api/admin/diagrams') return response({ diagrams });
         if (input.endsWith('/access') && init?.method === 'PUT') {
+            if (pendingAccess) return pendingAccess;
             if (accessStatus !== 200)
                 return response({ error: '저장 실패' }, accessStatus);
             return response({
@@ -107,6 +111,11 @@ const mockApi = (accessStatus = 200) => {
                 },
             });
         }
+        if (
+            (input.endsWith('/archive') || input.endsWith('/unarchive')) &&
+            init?.method === 'POST'
+        )
+            return response({ ok: true });
         throw new Error(`Unexpected request: ${input}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -140,16 +149,15 @@ it('stages distinguishable access selections and sends one batch request on save
     await user.click(await screen.findByRole('button', { name: '권한 편집' }));
     await user.click(screen.getByRole('tab', { name: '직접 열람' }));
 
-    const activeViewer = screen.getByRole('checkbox', {
-        name: /Alex Kim @alex\.finance VIEWER/,
+    const activeViewer = screen.getByRole('button', {
+        name: 'Alex Kim @alex.finance 추가',
     });
-    const inactiveViewer = screen.getByRole('checkbox', {
-        name: /Alex Kim @alex\.sales VIEWER 비활성/,
+    const inactiveViewer = screen.getByRole('button', {
+        name: 'Alex Kim @alex.sales 제거',
     });
-    expect(inactiveViewer).toBeChecked();
     expect(inactiveViewer).toBeEnabled();
     expect(
-        screen.queryByRole('checkbox', { name: /Administrator/ })
+        screen.queryByRole('button', { name: /Administrator/ })
     ).not.toBeInTheDocument();
 
     await user.click(activeViewer);
@@ -181,15 +189,19 @@ it('keeps the access draft open when saving fails', async () => {
 
     await user.click(await screen.findByRole('button', { name: '권한 편집' }));
     await user.click(screen.getByRole('tab', { name: '직접 열람' }));
-    const activeViewer = screen.getByRole('checkbox', {
-        name: /@alex\.finance/,
+    const activeViewer = screen.getByRole('button', {
+        name: 'Alex Kim @alex.finance 추가',
     });
     await user.click(activeViewer);
     await user.click(screen.getByRole('button', { name: '변경사항 저장' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('저장 실패');
     expect(screen.getByRole('dialog')).toBeVisible();
-    expect(activeViewer).toBeChecked();
+    expect(
+        screen.getByRole('button', {
+            name: 'Alex Kim @alex.finance 제거',
+        })
+    ).toBeEnabled();
 });
 
 it('shows an existing redundant admin grant so it can be removed', async () => {
@@ -210,10 +222,9 @@ it('shows an existing redundant admin grant so it can be removed', async () => {
 
     await user.click(screen.getByRole('button', { name: '권한 편집' }));
     await user.click(screen.getByRole('tab', { name: '직접 열람' }));
-    const adminGrant = screen.getByRole('checkbox', {
-        name: /Administrator @admin ADMIN/,
+    const adminGrant = screen.getByRole('button', {
+        name: 'Administrator @admin 제거',
     });
-    expect(adminGrant).toBeChecked();
     await user.click(adminGrant);
     await user.click(screen.getByRole('button', { name: '변경사항 저장' }));
 
@@ -229,4 +240,95 @@ it('shows an existing redundant admin grant so it can be removed', async () => {
             })
         );
     });
+});
+
+it('asks before discarding a changed access draft', async () => {
+    mockApi();
+    const user = userEvent.setup();
+    render(<AdminDiagramsPage />);
+
+    await user.click(await screen.findByRole('button', { name: '권한 편집' }));
+    await user.click(screen.getByRole('tab', { name: '직접 열람' }));
+    await user.click(
+        screen.getByRole('button', { name: 'Alex Kim @alex.finance 추가' })
+    );
+    await user.click(screen.getByRole('button', { name: '취소' }));
+
+    expect(
+        screen.getByRole('alertdialog', {
+            name: '저장하지 않은 변경사항을 버릴까요?',
+        })
+    ).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '계속 편집' }));
+    expect(
+        screen.getByRole('button', {
+            name: 'Alex Kim @alex.finance 제거',
+        })
+    ).toBeEnabled();
+
+    await user.click(screen.getByRole('button', { name: '취소' }));
+    await user.click(screen.getByRole('button', { name: '변경사항 버리기' }));
+    expect(
+        screen.queryByRole('heading', { name: 'Orders 권한 편집' })
+    ).not.toBeInTheDocument();
+});
+
+it('locks access controls while a save is in progress', async () => {
+    let resolveAccess!: (value: ReturnType<typeof response>) => void;
+    const pendingAccess = new Promise<ReturnType<typeof response>>(
+        (resolve) => {
+            resolveAccess = resolve;
+        }
+    );
+    mockApi(200, pendingAccess);
+    const user = userEvent.setup();
+    render(<AdminDiagramsPage />);
+
+    await user.click(await screen.findByRole('button', { name: '권한 편집' }));
+    await user.click(screen.getByRole('button', { name: '변경사항 저장' }));
+
+    expect(screen.getByRole('button', { name: '저장 중…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '취소' })).toBeDisabled();
+    expect(screen.getByRole('tab', { name: '공동 게시자' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+
+    resolveAccess(response({ diagram: diagrams[0] }));
+    await waitFor(() =>
+        expect(
+            screen.queryByRole('heading', { name: 'Orders 권한 편집' })
+        ).not.toBeInTheDocument()
+    );
+});
+
+it('confirms archive impact but recovers an ERD immediately', async () => {
+    const fetchMock = mockApi();
+    const user = userEvent.setup();
+    render(<AdminDiagramsPage />);
+
+    await user.click(await screen.findByRole('button', { name: '보관' }));
+    expect(
+        fetchMock.mock.calls.some(([input]) => input.endsWith('/archive'))
+    ).toBe(false);
+    expect(
+        screen.getByRole('alertdialog', {
+            name: 'Orders ERD를 보관할까요?',
+        })
+    ).toBeVisible();
+    expect(screen.getByText('일반 사용자의 접근이 중단됩니다.')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'ERD 보관' }));
+    await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+            '/api/admin/diagrams/abcdef12-0000-0000-0000-000000000000/archive',
+            expect.objectContaining({ method: 'POST' })
+        )
+    );
+
+    await user.click(await screen.findByRole('button', { name: '복구' }));
+    await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+            '/api/admin/diagrams/abcdef12-0000-0000-0000-000000000000/unarchive',
+            expect.objectContaining({ method: 'POST' })
+        )
+    );
 });

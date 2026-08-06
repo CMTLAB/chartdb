@@ -133,6 +133,8 @@ export const AdminGroupsPage = () => {
     const [page, setPage] = useState(1);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [deleting, setDeleting] = useState(false);
 
     useEffect(() => {
         let mounted = true;
@@ -183,6 +185,7 @@ export const AdminGroupsPage = () => {
         );
     };
     const deleteGroup = async (group: AdminGroup) => {
+        setDeleting(true);
         try {
             await apiFetch(`/api/admin/groups/${group.id}`, {
                 method: 'DELETE',
@@ -198,6 +201,9 @@ export const AdminGroupsPage = () => {
                     ? deleteError.message
                     : '그룹을 삭제하지 못했습니다.'
             );
+        } finally {
+            setDeleting(false);
+            setDeleteOpen(false);
         }
     };
 
@@ -301,7 +307,12 @@ export const AdminGroupsPage = () => {
                                     users={users}
                                     onSaved={updateGroup}
                                 />
-                                <AlertDialog>
+                                <AlertDialog
+                                    open={deleteOpen}
+                                    onOpenChange={(nextOpen) => {
+                                        if (!deleting) setDeleteOpen(nextOpen);
+                                    }}
+                                >
                                     <AlertDialogTrigger asChild>
                                         <Button variant="destructive">
                                             그룹 삭제
@@ -314,20 +325,26 @@ export const AdminGroupsPage = () => {
                                                 삭제할까요?
                                             </AlertDialogTitle>
                                             <AlertDialogDescription>
-                                                구성원 연결과 ERD 그룹 권한이
-                                                함께 제거됩니다.
+                                                구성원 {selected.userIds.length}
+                                                명과{' '}
+                                                {selected.diagramGrantCount}개
+                                                ERD의 그룹 권한이 제거됩니다.
                                             </AlertDialogDescription>
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>
-                                            <AlertDialogCancel>
+                                            <AlertDialogCancel
+                                                disabled={deleting}
+                                            >
                                                 취소
                                             </AlertDialogCancel>
                                             <AlertDialogAction
-                                                onClick={() =>
-                                                    void deleteGroup(selected)
-                                                }
+                                                disabled={deleting}
+                                                onClick={(event) => {
+                                                    event.preventDefault();
+                                                    void deleteGroup(selected);
+                                                }}
                                             >
-                                                삭제
+                                                {deleting ? '삭제 중…' : '삭제'}
                                             </AlertDialogAction>
                                         </AlertDialogFooter>
                                     </AlertDialogContent>

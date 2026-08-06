@@ -1,5 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/alert-dialog/alert-dialog';
 import { Badge } from '@/components/badge/badge';
 import { Button } from '@/components/button/button';
 import {
@@ -36,6 +46,10 @@ export const AdminDiagramsPage = () => {
     const [page, setPage] = useState(1);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [archiveTarget, setArchiveTarget] = useState<AdminDiagram | null>(
+        null
+    );
+    const [changingId, setChangingId] = useState('');
 
     useEffect(() => {
         let active = true;
@@ -100,6 +114,7 @@ export const AdminDiagramsPage = () => {
     };
 
     const setArchived = async (diagram: AdminDiagram) => {
+        setChangingId(diagram.id);
         try {
             await apiFetch(
                 `/api/admin/diagrams/${diagram.id}/${diagram.archived ? 'unarchive' : 'archive'}`,
@@ -113,6 +128,8 @@ export const AdminDiagramsPage = () => {
                     ? archiveError.message
                     : 'ERD 상태를 변경하지 못했습니다.'
             );
+        } finally {
+            setChangingId('');
         }
     };
 
@@ -275,18 +292,76 @@ export const AdminDiagramsPage = () => {
                                     groups={groups}
                                     onSaved={updateDiagram}
                                 />
-                                <Button
-                                    type="button"
-                                    variant="secondary"
-                                    onClick={() => void setArchived(selected)}
-                                >
-                                    {selected.archived ? '복구' : '보관'}
-                                </Button>
+                                {selected.archived ? (
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        disabled={changingId === selected.id}
+                                        onClick={() =>
+                                            void setArchived(selected)
+                                        }
+                                    >
+                                        {changingId === selected.id
+                                            ? '복구 중…'
+                                            : '복구'}
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        onClick={() =>
+                                            setArchiveTarget(selected)
+                                        }
+                                    >
+                                        보관
+                                    </Button>
+                                )}
                             </div>
                         </CardContent>
                     </Card>
                 ) : null}
             </div>
+
+            <AlertDialog
+                open={Boolean(archiveTarget)}
+                onOpenChange={(nextOpen) => {
+                    if (!nextOpen && !changingId) setArchiveTarget(null);
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {archiveTarget?.name} ERD를 보관할까요?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            일반 사용자의 접근이 중단됩니다.
+                            {archiveTarget ? (
+                                <span className="mt-1 block">
+                                    @{archiveTarget.createdByUsername} · #
+                                    {archiveTarget.id.slice(0, 8)}
+                                </span>
+                            ) : null}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={Boolean(changingId)}>
+                            취소
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={Boolean(changingId)}
+                            onClick={(event) => {
+                                event.preventDefault();
+                                if (!archiveTarget) return;
+                                void setArchived(archiveTarget).finally(() =>
+                                    setArchiveTarget(null)
+                                );
+                            }}
+                        >
+                            {changingId ? '보관 중…' : 'ERD 보관'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             {pageCount > 1 ? (
                 <Pagination>

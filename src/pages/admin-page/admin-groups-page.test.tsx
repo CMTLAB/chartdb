@@ -84,6 +84,11 @@ const mockApi = (memberStatus = 200) => {
                 201
             );
         }
+        if (
+            input === '/api/admin/groups/finance-id' &&
+            init?.method === 'DELETE'
+        )
+            return response({ ok: true });
         throw new Error(`Unexpected request: ${input}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -118,16 +123,15 @@ it('stages distinguishable members and saves them in one request', async () => {
     await user.click(
         await screen.findByRole('button', { name: '구성원 편집' })
     );
-    const activeUser = screen.getByRole('checkbox', {
-        name: /Alex Kim @alex\.finance VIEWER/,
+    const activeUser = screen.getByRole('button', {
+        name: 'Alex Kim @alex.finance 추가',
     });
-    const inactiveMember = screen.getByRole('checkbox', {
-        name: /Alex Kim @alex\.sales VIEWER 비활성/,
+    const inactiveMember = screen.getByRole('button', {
+        name: 'Alex Kim @alex.sales 제거',
     });
-    const inactiveOther = screen.getByRole('checkbox', {
-        name: /Inactive Other @inactive\.other VIEWER 비활성/,
+    const inactiveOther = screen.getByRole('button', {
+        name: 'Inactive Other @inactive.other 추가',
     });
-    expect(inactiveMember).toBeChecked();
     expect(inactiveMember).toBeEnabled();
     expect(inactiveOther).toBeDisabled();
 
@@ -159,8 +163,8 @@ it('keeps the member draft open after a failed save', async () => {
     await user.click(
         await screen.findByRole('button', { name: '구성원 편집' })
     );
-    const activeUser = screen.getByRole('checkbox', {
-        name: /@alex\.finance/,
+    const activeUser = screen.getByRole('button', {
+        name: 'Alex Kim @alex.finance 추가',
     });
     await user.click(activeUser);
     await user.click(screen.getByRole('button', { name: '변경사항 저장' }));
@@ -169,5 +173,55 @@ it('keeps the member draft open after a failed save', async () => {
         '구성원 저장 실패'
     );
     expect(screen.getByRole('dialog')).toBeVisible();
-    expect(activeUser).toBeChecked();
+    expect(
+        screen.getByRole('button', {
+            name: 'Alex Kim @alex.finance 제거',
+        })
+    ).toBeEnabled();
+});
+
+it('asks before discarding a changed member draft', async () => {
+    mockApi();
+    const user = userEvent.setup();
+    render(<AdminGroupsPage />);
+
+    await user.click(
+        await screen.findByRole('button', { name: '구성원 편집' })
+    );
+    await user.click(
+        screen.getByRole('button', { name: 'Alex Kim @alex.finance 추가' })
+    );
+    await user.click(screen.getByRole('button', { name: '취소' }));
+
+    expect(
+        screen.getByRole('alertdialog', {
+            name: '저장하지 않은 변경사항을 버릴까요?',
+        })
+    ).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '변경사항 버리기' }));
+    expect(
+        screen.queryByRole('heading', { name: 'Finance 구성원 편집' })
+    ).not.toBeInTheDocument();
+});
+
+it('shows the exact impact before deleting a group', async () => {
+    const fetchMock = mockApi();
+    const user = userEvent.setup();
+    render(<AdminGroupsPage />);
+
+    await user.click(await screen.findByRole('button', { name: '그룹 삭제' }));
+    expect(
+        fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')
+    ).toBe(false);
+    expect(
+        screen.getByText('구성원 1명과 2개 ERD의 그룹 권한이 제거됩니다.')
+    ).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: '삭제' }));
+    await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+            '/api/admin/groups/finance-id',
+            expect.objectContaining({ method: 'DELETE' })
+        )
+    );
 });

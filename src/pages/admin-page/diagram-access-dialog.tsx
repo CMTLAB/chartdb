@@ -1,10 +1,18 @@
 import React, { useMemo, useState } from 'react';
 
-import { Badge } from '@/components/badge/badge';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/alert-dialog/alert-dialog';
 import { Button } from '@/components/button/button';
 import {
     Dialog,
-    DialogClose,
     DialogContent,
     DialogDescription,
     DialogFooter,
@@ -12,15 +20,6 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/dialog/dialog';
-import { Input } from '@/components/input/input';
-import {
-    Pagination,
-    PaginationContent,
-    PaginationItem,
-    PaginationNext,
-    PaginationPrevious,
-} from '@/components/pagination/pagination';
-import { ScrollArea } from '@/components/scroll-area/scroll-area';
 import {
     Tabs,
     TabsContent,
@@ -29,9 +28,9 @@ import {
 } from '@/components/tabs/tabs';
 import { apiFetch } from '@/lib/api';
 
+import { AssignmentPicker, type AssignmentOption } from './assignment-picker';
 import type { AdminDiagram, AdminGroup, AdminUser } from './admin-types';
 
-const PAGE_SIZE = 20;
 type AccessTab = 'publishers' | 'groups' | 'users';
 
 interface DiagramAccessDialogProps {
@@ -41,54 +40,16 @@ interface DiagramAccessDialogProps {
     onSaved: (diagram: AdminDiagram) => void;
 }
 
-const Paging = ({
-    page,
-    total,
-    onChange,
-}: {
-    page: number;
-    total: number;
-    onChange: (page: number) => void;
-}) => {
-    if (total <= 1) return null;
-    return (
-        <Pagination className="pt-3">
-            <PaginationContent>
-                <PaginationItem>
-                    <PaginationPrevious
-                        href="#"
-                        aria-disabled={page === 1}
-                        className={
-                            page === 1 ? 'pointer-events-none opacity-50' : ''
-                        }
-                        onClick={(event) => {
-                            event.preventDefault();
-                            onChange(Math.max(1, page - 1));
-                        }}
-                    />
-                </PaginationItem>
-                <PaginationItem className="px-2 text-sm text-muted-foreground">
-                    {page} / {total}
-                </PaginationItem>
-                <PaginationItem>
-                    <PaginationNext
-                        href="#"
-                        aria-disabled={page === total}
-                        className={
-                            page === total
-                                ? 'pointer-events-none opacity-50'
-                                : ''
-                        }
-                        onClick={(event) => {
-                            event.preventDefault();
-                            onChange(Math.min(total, page + 1));
-                        }}
-                    />
-                </PaginationItem>
-            </PaginationContent>
-        </Pagination>
-    );
-};
+const sameIds = (left: Set<string>, right: Set<string>) =>
+    left.size === right.size && [...left].every((id) => right.has(id));
+
+const userOption = (user: AdminUser, disabled: boolean): AssignmentOption => ({
+    id: user.id,
+    primary: user.displayName,
+    secondary: `@${user.username}`,
+    badges: [user.role, ...(!user.active ? ['비활성'] : [])],
+    disabled,
+});
 
 export const DiagramAccessDialog = ({
     diagram,
@@ -96,75 +57,92 @@ export const DiagramAccessDialog = ({
     groups,
     onSaved,
 }: DiagramAccessDialogProps) => {
+    const initialPublisherIds = useMemo(
+        () => new Set(diagram.publisherIds),
+        [diagram.publisherIds]
+    );
+    const initialUserGrantIds = useMemo(
+        () => new Set(diagram.userGrantIds),
+        [diagram.userGrantIds]
+    );
+    const initialGroupGrantIds = useMemo(
+        () => new Set(diagram.groupGrantIds),
+        [diagram.groupGrantIds]
+    );
     const [open, setOpen] = useState(false);
+    const [discardOpen, setDiscardOpen] = useState(false);
     const [tab, setTab] = useState<AccessTab>('publishers');
-    const [searches, setSearches] = useState<Record<AccessTab, string>>({
-        publishers: '',
-        groups: '',
-        users: '',
-    });
-    const [pages, setPages] = useState<Record<AccessTab, number>>({
-        publishers: 1,
-        groups: 1,
-        users: 1,
-    });
-    const [publisherIds, setPublisherIds] = useState(
-        new Set(diagram.publisherIds)
-    );
-    const [userGrantIds, setUserGrantIds] = useState(
-        new Set(diagram.userGrantIds)
-    );
-    const [groupGrantIds, setGroupGrantIds] = useState(
-        new Set(diagram.groupGrantIds)
-    );
+    const [publisherIds, setPublisherIds] = useState(initialPublisherIds);
+    const [userGrantIds, setUserGrantIds] = useState(initialUserGrantIds);
+    const [groupGrantIds, setGroupGrantIds] = useState(initialGroupGrantIds);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    const dirty =
+        !sameIds(publisherIds, initialPublisherIds) ||
+        !sameIds(userGrantIds, initialUserGrantIds) ||
+        !sameIds(groupGrantIds, initialGroupGrantIds);
 
-    const setDialogOpen = (nextOpen: boolean) => {
-        setOpen(nextOpen);
-        if (nextOpen) {
-            setTab('publishers');
-            setSearches({ publishers: '', groups: '', users: '' });
-            setPages({ publishers: 1, groups: 1, users: 1 });
-            setPublisherIds(new Set(diagram.publisherIds));
-            setUserGrantIds(new Set(diagram.userGrantIds));
-            setGroupGrantIds(new Set(diagram.groupGrantIds));
-            setError('');
-        }
-    };
-
-    const candidates = useMemo(() => {
-        const query = searches[tab].trim().toLocaleLowerCase();
-        if (tab === 'groups') {
-            return groups.filter((group) =>
-                group.name.toLocaleLowerCase().includes(query)
-            );
-        }
-        return users.filter((user) => {
-            if (tab === 'publishers' && user.role !== 'PUBLISHER') return false;
-            if (
-                tab === 'users' &&
-                user.role === 'ADMIN' &&
-                !diagram.userGrantIds.includes(user.id)
-            )
-                return false;
-            return `${user.displayName} ${user.username} ${user.role}`
-                .toLocaleLowerCase()
-                .includes(query);
-        });
-    }, [diagram.userGrantIds, groups, searches, tab, users]);
-    const pageCount = Math.max(1, Math.ceil(candidates.length / PAGE_SIZE));
-    const page = Math.min(pages[tab], pageCount);
-    const visibleCandidates = candidates.slice(
-        (page - 1) * PAGE_SIZE,
-        page * PAGE_SIZE
+    const publisherOptions = useMemo(
+        () =>
+            users
+                .filter(
+                    (user) =>
+                        user.role === 'PUBLISHER' ||
+                        initialPublisherIds.has(user.id)
+                )
+                .map((user) =>
+                    userOption(
+                        user,
+                        (!user.active || user.role !== 'PUBLISHER') &&
+                            !initialPublisherIds.has(user.id)
+                    )
+                ),
+        [initialPublisherIds, users]
+    );
+    const userOptions = useMemo(
+        () =>
+            users
+                .filter(
+                    (user) =>
+                        user.role !== 'ADMIN' ||
+                        initialUserGrantIds.has(user.id)
+                )
+                .map((user) =>
+                    userOption(
+                        user,
+                        (!user.active || user.role === 'ADMIN') &&
+                            !initialUserGrantIds.has(user.id)
+                    )
+                ),
+        [initialUserGrantIds, users]
+    );
+    const groupOptions = useMemo(
+        () =>
+            groups.map((group) => ({
+                id: group.id,
+                primary: group.name,
+                badges: [`${group.userIds.length}명`],
+            })),
+        [groups]
     );
 
-    const toggle = (current: Set<string>, id: string) => {
-        const next = new Set(current);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
+    const reset = () => {
+        setTab('publishers');
+        setPublisherIds(new Set(diagram.publisherIds));
+        setUserGrantIds(new Set(diagram.userGrantIds));
+        setGroupGrantIds(new Set(diagram.groupGrantIds));
+        setError('');
+    };
+    const requestClose = () => {
+        if (saving) return;
+        if (dirty) setDiscardOpen(true);
+        else setOpen(false);
+    };
+    const setDialogOpen = (nextOpen: boolean) => {
+        if (nextOpen) {
+            reset();
+            setOpen(true);
+        } else requestClose();
     };
 
     const save = async () => {
@@ -200,11 +178,14 @@ export const DiagramAccessDialog = ({
             <DialogTrigger asChild>
                 <Button>권한 편집</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl" showClose>
+            <DialogContent
+                className="max-h-[90vh] max-w-3xl overflow-y-auto"
+                showClose={!saving}
+            >
                 <DialogHeader>
                     <DialogTitle>{diagram.name} 권한 편집</DialogTitle>
                     <DialogDescription>
-                        체크한 변경은 저장 버튼을 눌러야 반영됩니다.
+                        대상을 추가하거나 제거한 뒤 변경사항을 저장하세요.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -213,163 +194,46 @@ export const DiagramAccessDialog = ({
                     onValueChange={(value) => setTab(value as AccessTab)}
                 >
                     <TabsList className="grid w-full grid-cols-3">
-                        <TabsTrigger value="publishers">
+                        <TabsTrigger value="publishers" disabled={saving}>
                             공동 게시자
                         </TabsTrigger>
-                        <TabsTrigger value="groups">그룹 열람</TabsTrigger>
-                        <TabsTrigger value="users">직접 열람</TabsTrigger>
+                        <TabsTrigger value="groups" disabled={saving}>
+                            그룹 열람
+                        </TabsTrigger>
+                        <TabsTrigger value="users" disabled={saving}>
+                            직접 열람
+                        </TabsTrigger>
                     </TabsList>
-                    {(['publishers', 'groups', 'users'] as const).map(
-                        (value) => (
-                            <TabsContent key={value} value={value}>
-                                <Input
-                                    type="search"
-                                    aria-label={
-                                        value === 'groups'
-                                            ? '그룹 검색'
-                                            : '사용자 검색'
-                                    }
-                                    placeholder="이름 또는 아이디 검색"
-                                    value={searches[value]}
-                                    onChange={(event) => {
-                                        setSearches((current) => ({
-                                            ...current,
-                                            [value]: event.target.value,
-                                        }));
-                                        setPages((current) => ({
-                                            ...current,
-                                            [value]: 1,
-                                        }));
-                                    }}
-                                />
-                                <ScrollArea className="mt-3 h-72 rounded-md border">
-                                    <div className="divide-y">
-                                        {visibleCandidates.map((candidate) => {
-                                            if ('userIds' in candidate) {
-                                                const checked =
-                                                    groupGrantIds.has(
-                                                        candidate.id
-                                                    );
-                                                return (
-                                                    <label
-                                                        key={candidate.id}
-                                                        className="flex cursor-pointer items-center gap-3 p-3 text-sm"
-                                                    >
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={checked}
-                                                            onChange={() =>
-                                                                setGroupGrantIds(
-                                                                    (current) =>
-                                                                        toggle(
-                                                                            current,
-                                                                            candidate.id
-                                                                        )
-                                                                )
-                                                            }
-                                                        />
-                                                        <span className="font-medium">
-                                                            {candidate.name}
-                                                        </span>
-                                                        <span className="ml-auto text-muted-foreground">
-                                                            {
-                                                                candidate
-                                                                    .userIds
-                                                                    .length
-                                                            }
-                                                            명
-                                                        </span>
-                                                    </label>
-                                                );
-                                            }
-                                            const selected =
-                                                value === 'publishers'
-                                                    ? publisherIds.has(
-                                                          candidate.id
-                                                      )
-                                                    : userGrantIds.has(
-                                                          candidate.id
-                                                      );
-                                            return (
-                                                <label
-                                                    key={candidate.id}
-                                                    className="flex cursor-pointer items-center gap-3 p-3 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
-                                                >
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={selected}
-                                                        disabled={
-                                                            !candidate.active &&
-                                                            !selected
-                                                        }
-                                                        onChange={() => {
-                                                            if (
-                                                                value ===
-                                                                'publishers'
-                                                            ) {
-                                                                setPublisherIds(
-                                                                    (current) =>
-                                                                        toggle(
-                                                                            current,
-                                                                            candidate.id
-                                                                        )
-                                                                );
-                                                            } else {
-                                                                setUserGrantIds(
-                                                                    (current) =>
-                                                                        toggle(
-                                                                            current,
-                                                                            candidate.id
-                                                                        )
-                                                                );
-                                                            }
-                                                        }}
-                                                    />
-                                                    <span>
-                                                        <span className="font-medium">
-                                                            {
-                                                                candidate.displayName
-                                                            }
-                                                        </span>{' '}
-                                                        <span className="text-muted-foreground">
-                                                            @
-                                                            {candidate.username}
-                                                        </span>
-                                                    </span>
-                                                    <Badge
-                                                        variant="secondary"
-                                                        className="ml-auto"
-                                                    >
-                                                        {candidate.role}
-                                                    </Badge>
-                                                    {!candidate.active ? (
-                                                        <Badge variant="outline">
-                                                            비활성
-                                                        </Badge>
-                                                    ) : null}
-                                                </label>
-                                            );
-                                        })}
-                                        {visibleCandidates.length === 0 ? (
-                                            <p className="p-6 text-center text-sm text-muted-foreground">
-                                                검색 결과가 없습니다.
-                                            </p>
-                                        ) : null}
-                                    </div>
-                                </ScrollArea>
-                                <Paging
-                                    page={page}
-                                    total={pageCount}
-                                    onChange={(nextPage) =>
-                                        setPages((current) => ({
-                                            ...current,
-                                            [value]: nextPage,
-                                        }))
-                                    }
-                                />
-                            </TabsContent>
-                        )
-                    )}
+                    <TabsContent value="publishers">
+                        <AssignmentPicker
+                            options={publisherOptions}
+                            selectedIds={publisherIds}
+                            initialIds={initialPublisherIds}
+                            searchLabel="게시자 검색"
+                            disabled={saving}
+                            onChange={setPublisherIds}
+                        />
+                    </TabsContent>
+                    <TabsContent value="groups">
+                        <AssignmentPicker
+                            options={groupOptions}
+                            selectedIds={groupGrantIds}
+                            initialIds={initialGroupGrantIds}
+                            searchLabel="그룹 검색"
+                            disabled={saving}
+                            onChange={setGroupGrantIds}
+                        />
+                    </TabsContent>
+                    <TabsContent value="users">
+                        <AssignmentPicker
+                            options={userOptions}
+                            selectedIds={userGrantIds}
+                            initialIds={initialUserGrantIds}
+                            searchLabel="사용자 검색"
+                            disabled={saving}
+                            onChange={setUserGrantIds}
+                        />
+                    </TabsContent>
                 </Tabs>
 
                 {error ? (
@@ -378,16 +242,43 @@ export const DiagramAccessDialog = ({
                     </p>
                 ) : null}
                 <DialogFooter>
-                    <DialogClose asChild>
-                        <Button type="button" variant="secondary">
-                            취소
-                        </Button>
-                    </DialogClose>
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={saving}
+                        onClick={requestClose}
+                    >
+                        취소
+                    </Button>
                     <Button type="button" disabled={saving} onClick={save}>
                         {saving ? '저장 중…' : '변경사항 저장'}
                     </Button>
                 </DialogFooter>
             </DialogContent>
+
+            <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            저장하지 않은 변경사항을 버릴까요?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            추가하거나 제거한 권한이 저장되지 않습니다.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>계속 편집</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={() => {
+                                setDiscardOpen(false);
+                                setOpen(false);
+                            }}
+                        >
+                            변경사항 버리기
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </Dialog>
     );
 };
