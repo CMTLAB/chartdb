@@ -1,5 +1,11 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+    fireEvent,
+    render,
+    screen,
+    waitFor,
+    within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 
@@ -81,6 +87,24 @@ it('distinguishes duplicate display names and searches username', async () => {
     });
     expect(screen.getByText('@alex.finance')).toBeVisible();
     expect(screen.queryByText('@alex.sales')).not.toBeInTheDocument();
+});
+
+it('uses a compact responsive row and subdued active status', async () => {
+    mockApi();
+    render(<AdminUsersPage />);
+
+    const row = (await screen.findByText('@alex.finance')).closest('tr');
+    if (!row) throw new Error('User row not found');
+    expect(within(row).getByText('역할', { selector: 'span' })).toHaveClass(
+        'md:hidden'
+    );
+    expect(within(row).getByText('상태', { selector: 'span' })).toHaveClass(
+        'md:hidden'
+    );
+    expect(within(row).getByText('활성')).toHaveClass(
+        'bg-emerald-500/15',
+        'text-emerald-700'
+    );
 });
 
 it('creates a user in a dialog and adds the returned identity', async () => {

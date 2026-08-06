@@ -326,38 +326,50 @@ export const AdminUsersPage = () => {
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="overflow-x-auto p-0">
-                    <Table>
-                        <TableHeader>
+                    <Table className="block md:table md:min-w-[760px] md:table-fixed">
+                        <TableHeader className="hidden md:table-header-group">
                             <TableRow>
-                                <TableHead>사용자</TableHead>
-                                <TableHead>역할</TableHead>
-                                <TableHead>상태</TableHead>
-                                <TableHead>생성일</TableHead>
-                                <TableHead className="text-right">
+                                <TableHead className="w-[30%]">
+                                    사용자
+                                </TableHead>
+                                <TableHead className="w-[22%]">역할</TableHead>
+                                <TableHead className="w-[14%]">상태</TableHead>
+                                <TableHead className="w-[18%]">
+                                    생성일
+                                </TableHead>
+                                <TableHead className="w-[16%] text-right">
                                     관리
                                 </TableHead>
                             </TableRow>
                         </TableHeader>
-                        <TableBody>
+                        <TableBody className="block md:table-row-group">
                             {visible.map((user) => (
-                                <TableRow key={user.id}>
-                                    <TableCell>
-                                        <p className="font-medium">
-                                            {user.displayName}
-                                        </p>
+                                <TableRow
+                                    key={user.id}
+                                    className="block space-y-3 p-4 md:table-row md:space-y-0 md:p-0"
+                                >
+                                    <TableCell className="block p-0 md:table-cell md:w-[30%] md:p-3">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <p className="font-medium">
+                                                {user.displayName}
+                                            </p>
+                                            {user.mustChangePassword ? (
+                                                <Badge
+                                                    variant="outline"
+                                                    className="border-amber-500/40 text-amber-700 dark:text-amber-300"
+                                                >
+                                                    비밀번호 변경 대기
+                                                </Badge>
+                                            ) : null}
+                                        </div>
                                         <p className="text-xs text-muted-foreground">
                                             @{user.username}
                                         </p>
-                                        {user.mustChangePassword ? (
-                                            <Badge
-                                                variant="outline"
-                                                className="mt-1"
-                                            >
-                                                비밀번호 변경 대기
-                                            </Badge>
-                                        ) : null}
                                     </TableCell>
-                                    <TableCell>
+                                    <TableCell className="flex items-center justify-between gap-3 p-0 md:table-cell md:w-[22%] md:p-3">
+                                        <span className="text-xs font-medium text-muted-foreground md:hidden">
+                                            역할
+                                        </span>
                                         <select
                                             aria-label={`${user.username} 역할`}
                                             className="h-8 rounded-md border bg-background px-2 text-sm"
@@ -378,23 +390,39 @@ export const AdminUsersPage = () => {
                                             </option>
                                         </select>
                                     </TableCell>
-                                    <TableCell>
+                                    <TableCell className="flex items-center justify-between gap-3 p-0 md:table-cell md:w-[14%] md:p-3">
+                                        <span className="text-xs font-medium text-muted-foreground md:hidden">
+                                            상태
+                                        </span>
                                         <Badge
                                             variant={
                                                 user.active
-                                                    ? 'default'
+                                                    ? 'outline'
                                                     : 'secondary'
+                                            }
+                                            className={
+                                                user.active
+                                                    ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                                    : undefined
                                             }
                                         >
                                             {user.active ? '활성' : '비활성'}
                                         </Badge>
                                     </TableCell>
-                                    <TableCell className="text-muted-foreground">
-                                        {new Date(
-                                            user.createdAt
-                                        ).toLocaleDateString('ko-KR')}
+                                    <TableCell className="flex items-center justify-between gap-3 p-0 text-muted-foreground md:table-cell md:w-[18%] md:p-3">
+                                        <span className="text-xs font-medium md:hidden">
+                                            생성일
+                                        </span>
+                                        <span>
+                                            {new Date(
+                                                user.createdAt
+                                            ).toLocaleDateString('ko-KR')}
+                                        </span>
                                     </TableCell>
-                                    <TableCell className="text-right">
+                                    <TableCell className="flex items-center justify-between gap-3 p-0 md:table-cell md:w-[16%] md:p-3 md:text-right">
+                                        <span className="text-xs font-medium text-muted-foreground md:hidden">
+                                            관리
+                                        </span>
                                         <Button
                                             type="button"
                                             size="sm"
@@ -413,10 +441,10 @@ export const AdminUsersPage = () => {
                                 </TableRow>
                             ))}
                             {visible.length === 0 ? (
-                                <TableRow>
+                                <TableRow className="block md:table-row">
                                     <TableCell
                                         colSpan={5}
-                                        className="h-24 text-center text-muted-foreground"
+                                        className="block h-24 text-center text-muted-foreground md:table-cell"
                                     >
                                         조건에 맞는 사용자가 없습니다.
                                     </TableCell>
