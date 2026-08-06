@@ -89,6 +89,59 @@ npm install
 npm run build
 ```
 
+### 사내 Docker 배포
+
+최초 실행 전에 임시 관리자 계정을 환경변수로 주입합니다. 비밀번호는 12자
+이상이어야 하며 저장소의 `.env` 파일에는 커밋하지 않습니다.
+
+```bash
+export CHARTDB_BOOTSTRAP_ADMIN_USERNAME=admin
+export CHARTDB_BOOTSTRAP_ADMIN_PASSWORD='<temporary-password>'
+docker compose up -d --build
+```
+
+ChartDB 진입 주소는 `http://<server>:9092`입니다. 최초 관리자는 로그인 직후
+비밀번호를 변경해야 합니다. 계정이 생성된 뒤에는 두 bootstrap 환경변수를
+제거하고 access-server를 재생성합니다. 기존 계정이나 비밀번호는 컨테이너
+재시작으로 덮어쓰지 않습니다.
+
+HTTP 운영에서는 로그인 비밀번호, 세션 쿠키, API 토큰이 전송 구간에서
+암호화되지 않습니다. 접근이 통제된 신뢰 내부망에서만 사용하고, 내부망이
+신뢰 경계를 벗어나거나 TLS 종료 프록시를 도입하면 HTTPS 강제와
+`CHARTDB_COOKIE_SECURE=true`를 함께 적용합니다.
+
+```bash
+unset CHARTDB_BOOTSTRAP_ADMIN_USERNAME CHARTDB_BOOTSTRAP_ADMIN_PASSWORD
+docker compose up -d --force-recreate access-server
+```
+
+HTTPS 프록시 뒤에서 운영할 때는 `CHARTDB_COOKIE_SECURE=true`도 설정합니다.
+
+관리자 비밀번호를 잊은 경우 서버 접근 권한이 있는 운영자가 다음 대화형
+명령을 실행합니다. 새 비밀번호는 명령행이나 로그에 표시되지 않으며 기존
+로그인 세션은 모두 폐기됩니다.
+
+```bash
+docker compose exec access-server npm run admin:reset-password -- admin
+```
+
+SQLite 백업은 access-server를 잠시 중지한 상태에서 수행합니다.
+
+```bash
+docker compose stop access-server
+docker compose cp access-server:/data/chartdb.sqlite ./chartdb.sqlite.backup
+docker compose start access-server
+```
+
+게시자별 API 토큰을 이용한 Smart Query 자동 게시 경로는 다음과 같습니다.
+
+```bash
+curl -X POST 'http://<server>:9092/api/diagrams/<diagram-id>/metadata' \
+  -H 'Authorization: Bearer <publisher-api-token>' \
+  -H 'Content-Type: application/json' \
+  --data-binary @metadata-request.json
+```
+
 Or like this if you want to have AI capabilities:
 
 ```bash

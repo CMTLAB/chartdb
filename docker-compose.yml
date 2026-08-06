@@ -1,0 +1,40 @@
+services:
+    chartdb:
+        build:
+            context: .
+        image: chartdb-internal
+        ports:
+            - '9092:80'
+        depends_on:
+            access-server:
+                condition: service_healthy
+        restart: unless-stopped
+
+    access-server:
+        build:
+            context: ./publish-server
+        image: chartdb-access-server
+        environment:
+            DATABASE_FILE: /data/chartdb.sqlite
+            NODE_ENV: production
+            COOKIE_SECURE: '${CHARTDB_COOKIE_SECURE:-false}'
+            CHARTDB_BOOTSTRAP_ADMIN_USERNAME: '${CHARTDB_BOOTSTRAP_ADMIN_USERNAME:-}'
+            CHARTDB_BOOTSTRAP_ADMIN_PASSWORD: '${CHARTDB_BOOTSTRAP_ADMIN_PASSWORD:-}'
+        volumes:
+            - access-data:/data
+        healthcheck:
+            test:
+                [
+                    'CMD',
+                    'node',
+                    '-e',
+                    "fetch('http://127.0.0.1:8788/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+                ]
+            interval: 10s
+            timeout: 3s
+            retries: 5
+            start_period: 10s
+        restart: unless-stopped
+
+volumes:
+    access-data:

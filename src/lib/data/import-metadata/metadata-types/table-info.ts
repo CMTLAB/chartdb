@@ -7,7 +7,7 @@ export interface TableInfo {
     type?: string;
     engine?: string;
     collation?: string;
-    comment?: string;
+    comment?: string | null;
 }
 
 export const TableInfoSchema: z.ZodType<TableInfo> = z.object({
@@ -17,5 +17,5 @@ export const TableInfoSchema: z.ZodType<TableInfo> = z.object({
     type: z.string().optional(),
     engine: z.string().optional(),
     collation: z.string().optional(),
-    comment: z.string().optional(),
+    comment: z.string().nullable().optional(),
 });

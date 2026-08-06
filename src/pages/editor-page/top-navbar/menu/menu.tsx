@@ -13,6 +13,7 @@ import {
     MenubarTrigger,
 } from '@/components/menubar/menubar';
 import { useChartDB } from '@/hooks/use-chartdb';
+import { usePublishDiagram } from '@/hooks/use-publish-diagram';
 import { useDialog } from '@/hooks/use-dialog';
 import { useExportImage } from '@/hooks/use-export-image';
 import { databaseTypeToLabelMap } from '@/lib/databases';
@@ -28,6 +29,8 @@ import { useTheme } from '@/hooks/use-theme';
 import { useLocalConfig } from '@/hooks/use-local-config';
 import { useNavigate } from 'react-router-dom';
 import { useAlert } from '@/context/alert-context/alert-context';
+import { useAuth } from '@/context/auth-context/auth-context';
+import { parseServerDiagramLocalId } from '@/lib/shared-diagram';
 
 export interface MenuProps {}
 
@@ -37,7 +40,10 @@ export const Menu: React.FC<MenuProps> = () => {
         deleteDiagram,
         updateDiagramUpdatedAt,
         databaseType,
+        currentDiagram,
+        readonly,
     } = useChartDB();
+    const { publish } = usePublishDiagram();
     const {
         openCreateDiagramDialog,
         openOpenDiagramDialog,
@@ -62,10 +68,18 @@ export const Menu: React.FC<MenuProps> = () => {
         showDBViews,
         setShowDBViews,
     } = useLocalConfig();
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const { user } = useAuth();
+    const publishDiagram = useCallback(
+        () => publish(currentDiagram),
+        [publish, currentDiagram]
+    );
     const { redo, undo, hasRedo, hasUndo } = useHistory();
     const { exportImage } = useExportImage();
     const navigate = useNavigate();
+    const serverDiagramId = currentDiagram?.id
+        ? parseServerDiagramLocalId(currentDiagram.id)
+        : null;
 
     const handleDeleteDiagramAction = useCallback(() => {
         deleteDiagram();
@@ -152,9 +166,11 @@ export const Menu: React.FC<MenuProps> = () => {
             <MenubarMenu>
                 <MenubarTrigger>{t('menu.actions.actions')}</MenubarTrigger>
                 <MenubarContent>
-                    <MenubarItem onClick={createNewDiagram}>
-                        {t('menu.actions.new')}
-                    </MenubarItem>
+                    {!readonly ? (
+                        <MenubarItem onClick={createNewDiagram}>
+                            {t('menu.actions.new')}
+                        </MenubarItem>
+                    ) : null}
                     <MenubarItem onClick={openDiagram}>
                         {t('menu.actions.browse')}
                         <MenubarShortcut>
@@ -165,50 +181,56 @@ export const Menu: React.FC<MenuProps> = () => {
                             }
                         </MenubarShortcut>
                     </MenubarItem>
-                    <MenubarItem onClick={updateDiagramUpdatedAt}>
-                        {t('menu.actions.save')}
-                        <MenubarShortcut>
-                            {
-                                keyboardShortcutsForOS[
-                                    KeyboardShortcutAction.SAVE_DIAGRAM
-                                ].keyCombinationLabel
-                            }
-                        </MenubarShortcut>
-                    </MenubarItem>
-                    <MenubarSeparator />
-                    <MenubarSub>
-                        <MenubarSubTrigger>
-                            {t('menu.actions.import')}
-                        </MenubarSubTrigger>
-                        <MenubarSubContent>
-                            <MenubarItem onClick={openImportDiagramDialog}>
-                                .json
+                    {!readonly ? (
+                        <>
+                            <MenubarItem onClick={updateDiagramUpdatedAt}>
+                                {t('menu.actions.save')}
+                                <MenubarShortcut>
+                                    {
+                                        keyboardShortcutsForOS[
+                                            KeyboardShortcutAction.SAVE_DIAGRAM
+                                        ].keyCombinationLabel
+                                    }
+                                </MenubarShortcut>
                             </MenubarItem>
                             <MenubarSeparator />
-                            <MenubarItem
-                                onClick={() =>
-                                    openImportDatabaseDialog({
-                                        databaseType,
-                                        importMethods: ['ddl', 'dbml'],
-                                        initialImportMethod: 'ddl',
-                                    })
-                                }
-                            >
-                                SQL
-                            </MenubarItem>
-                            <MenubarItem
-                                onClick={() =>
-                                    openImportDatabaseDialog({
-                                        databaseType,
-                                        importMethods: ['ddl', 'dbml'],
-                                        initialImportMethod: 'dbml',
-                                    })
-                                }
-                            >
-                                DBML
-                            </MenubarItem>
-                        </MenubarSubContent>
-                    </MenubarSub>
+                            <MenubarSub>
+                                <MenubarSubTrigger>
+                                    {t('menu.actions.import')}
+                                </MenubarSubTrigger>
+                                <MenubarSubContent>
+                                    <MenubarItem
+                                        onClick={openImportDiagramDialog}
+                                    >
+                                        .json
+                                    </MenubarItem>
+                                    <MenubarSeparator />
+                                    <MenubarItem
+                                        onClick={() =>
+                                            openImportDatabaseDialog({
+                                                databaseType,
+                                                importMethods: ['ddl', 'dbml'],
+                                                initialImportMethod: 'ddl',
+                                            })
+                                        }
+                                    >
+                                        SQL
+                                    </MenubarItem>
+                                    <MenubarItem
+                                        onClick={() =>
+                                            openImportDatabaseDialog({
+                                                databaseType,
+                                                importMethods: ['ddl', 'dbml'],
+                                                initialImportMethod: 'dbml',
+                                            })
+                                        }
+                                    >
+                                        DBML
+                                    </MenubarItem>
+                                </MenubarSubContent>
+                            </MenubarSub>
+                        </>
+                    ) : null}
                     <MenubarSeparator />
                     <MenubarSub>
                         <MenubarSubTrigger>
@@ -308,64 +330,93 @@ export const Menu: React.FC<MenuProps> = () => {
                         </MenubarSubContent>
                     </MenubarSub>
                     <MenubarSeparator />
-                    <MenubarItem
-                        onClick={() =>
-                            showAlert({
-                                title: t('delete_diagram_alert.title'),
-                                description: t(
-                                    'delete_diagram_alert.description'
-                                ),
-                                actionLabel: t('delete_diagram_alert.delete'),
-                                closeLabel: t('delete_diagram_alert.cancel'),
-                                onAction: handleDeleteDiagramAction,
-                            })
-                        }
-                    >
-                        {t('menu.actions.delete_diagram')}
-                    </MenubarItem>
+                    {user?.role === 'ADMIN' || user?.role === 'PUBLISHER' ? (
+                        <MenubarItem onClick={publishDiagram}>
+                            {i18n.language?.startsWith('ko')
+                                ? '발행하기'
+                                : 'Publish'}
+                        </MenubarItem>
+                    ) : null}
+                    {serverDiagramId ? (
+                        <MenubarItem
+                            onClick={() =>
+                                navigate(`/versions/${serverDiagramId}`)
+                            }
+                        >
+                            {i18n.language?.startsWith('ko')
+                                ? '버전 이력'
+                                : 'Version history'}
+                        </MenubarItem>
+                    ) : null}
+                    {!readonly ? (
+                        <>
+                            <MenubarSeparator />
+                            <MenubarItem
+                                onClick={() =>
+                                    showAlert({
+                                        title: t('delete_diagram_alert.title'),
+                                        description: t(
+                                            'delete_diagram_alert.description'
+                                        ),
+                                        actionLabel: t(
+                                            'delete_diagram_alert.delete'
+                                        ),
+                                        closeLabel: t(
+                                            'delete_diagram_alert.cancel'
+                                        ),
+                                        onAction: handleDeleteDiagramAction,
+                                    })
+                                }
+                            >
+                                {t('menu.actions.delete_diagram')}
+                            </MenubarItem>
+                        </>
+                    ) : null}
                 </MenubarContent>
             </MenubarMenu>
-            <MenubarMenu>
-                <MenubarTrigger>{t('menu.edit.edit')}</MenubarTrigger>
-                <MenubarContent>
-                    <MenubarItem onClick={undo} disabled={!hasUndo}>
-                        {t('menu.edit.undo')}
-                        <MenubarShortcut>
-                            {
-                                keyboardShortcutsForOS[
-                                    KeyboardShortcutAction.UNDO
-                                ].keyCombinationLabel
+            {!readonly ? (
+                <MenubarMenu>
+                    <MenubarTrigger>{t('menu.edit.edit')}</MenubarTrigger>
+                    <MenubarContent>
+                        <MenubarItem onClick={undo} disabled={!hasUndo}>
+                            {t('menu.edit.undo')}
+                            <MenubarShortcut>
+                                {
+                                    keyboardShortcutsForOS[
+                                        KeyboardShortcutAction.UNDO
+                                    ].keyCombinationLabel
+                                }
+                            </MenubarShortcut>
+                        </MenubarItem>
+                        <MenubarItem onClick={redo} disabled={!hasRedo}>
+                            {t('menu.edit.redo')}
+                            <MenubarShortcut>
+                                {
+                                    keyboardShortcutsForOS[
+                                        KeyboardShortcutAction.REDO
+                                    ].keyCombinationLabel
+                                }
+                            </MenubarShortcut>
+                        </MenubarItem>
+                        <MenubarSeparator />
+                        <MenubarItem
+                            onClick={() =>
+                                showAlert({
+                                    title: t('clear_diagram_alert.title'),
+                                    description: t(
+                                        'clear_diagram_alert.description'
+                                    ),
+                                    actionLabel: t('clear_diagram_alert.clear'),
+                                    closeLabel: t('clear_diagram_alert.cancel'),
+                                    onAction: clearDiagramData,
+                                })
                             }
-                        </MenubarShortcut>
-                    </MenubarItem>
-                    <MenubarItem onClick={redo} disabled={!hasRedo}>
-                        {t('menu.edit.redo')}
-                        <MenubarShortcut>
-                            {
-                                keyboardShortcutsForOS[
-                                    KeyboardShortcutAction.REDO
-                                ].keyCombinationLabel
-                            }
-                        </MenubarShortcut>
-                    </MenubarItem>
-                    <MenubarSeparator />
-                    <MenubarItem
-                        onClick={() =>
-                            showAlert({
-                                title: t('clear_diagram_alert.title'),
-                                description: t(
-                                    'clear_diagram_alert.description'
-                                ),
-                                actionLabel: t('clear_diagram_alert.clear'),
-                                closeLabel: t('clear_diagram_alert.cancel'),
-                                onAction: clearDiagramData,
-                            })
-                        }
-                    >
-                        {t('menu.edit.clear')}
-                    </MenubarItem>
-                </MenubarContent>
-            </MenubarMenu>
+                        >
+                            {t('menu.edit.clear')}
+                        </MenubarItem>
+                    </MenubarContent>
+                </MenubarMenu>
+            ) : null}
             <MenubarMenu>
                 <MenubarTrigger>{t('menu.view.view')}</MenubarTrigger>
                 <MenubarContent>
@@ -480,9 +531,11 @@ export const Menu: React.FC<MenuProps> = () => {
                     <MenubarItem onClick={openExportDiagramDialog}>
                         {t('menu.backup.export_diagram')}
                     </MenubarItem>
-                    <MenubarItem onClick={openImportDiagramDialog}>
-                        {t('menu.backup.restore_diagram')}
-                    </MenubarItem>
+                    {!readonly ? (
+                        <MenubarItem onClick={openImportDiagramDialog}>
+                            {t('menu.backup.restore_diagram')}
+                        </MenubarItem>
+                    ) : null}
                 </MenubarContent>
             </MenubarMenu>
 

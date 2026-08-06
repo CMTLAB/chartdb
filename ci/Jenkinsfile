@@ -1,0 +1,142 @@
+def formatKstDate(long millis) {
+    new Date(millis).format('yyyy-MM-dd HH:mm:ss z', TimeZone.getTimeZone('Asia/Seoul'))
+}
+
+def usableJenkinsUrl(String url) {
+    url?.trim() && !url.contains('unconfigured-jenkins-location')
+}
+
+def jenkinsBuildUrl() {
+    if (usableJenkinsUrl(env.BUILD_URL ?: '')) return env.BUILD_URL
+
+    String buildNumber = env.BUILD_NUMBER ?: ''
+    String jobUrl = env.JOB_URL ?: ''
+    if (usableJenkinsUrl(jobUrl) && buildNumber) {
+        String baseUrl = jobUrl.endsWith('/') ? jobUrl : "${jobUrl}/"
+        return "${baseUrl}${buildNumber}/"
+    }
+
+    String jenkinsUrl = env.JENKINS_URL ?: ''
+    String jobName = env.JOB_NAME ?: ''
+    if (usableJenkinsUrl(jenkinsUrl) && jobName && buildNumber) {
+        String baseUrl = jenkinsUrl.endsWith('/') ? jenkinsUrl : "${jenkinsUrl}/"
+        String jobPath = jobName.tokenize('/').collect { "job/${it}" }.join('/')
+        return "${baseUrl}${jobPath}/${buildNumber}/"
+    }
+
+    usableJenkinsUrl(env.RUN_DISPLAY_URL ?: '') ? env.RUN_DISPLAY_URL : ''
+}
+
+def githubPullUrl(String number) {
+    String gitUrl = (env.GIT_URL ?: '').trim()
+    def matcher = gitUrl =~ /^https:\/\/(?:[^\/@]+@)?github[.]com\/([^\/?#]+)\/([^\/?#]+)\/?$/
+    if (!matcher.matches()) return ''
+    String repository = matcher.group(2).replaceFirst(/[.]git$/, '')
+    "https://github.com/${matcher.group(1)}/${repository}/pull/${number}"
+}
+
+def deploymentSource() {
+    def unknown = [type: '알 수 없음', ref: '', url: '', actorLabel: '작업자', actor: '']
+    if (!fileExists('.git')) return unknown
+
+    try {
+        String parents = sh(returnStdout: true, script: 'git rev-list --parents -n 1 HEAD').trim()
+        int parentCount = Math.max(0, parents.tokenize(' ').size() - 1)
+        String subject = sh(returnStdout: true, script: 'git show -s --format=%s HEAD').trim()
+        String author = sh(returnStdout: true, script: 'git show -s "--format=%an <%ae>" HEAD').trim()
+        String committer = sh(returnStdout: true, script: 'git show -s "--format=%cn <%ce>" HEAD').trim()
+        def pullMatcher = subject =~ /Merge pull request #(\d+)/
+        String pullNumber = pullMatcher.find() ? pullMatcher.group(1) : ''
+
+        if (parentCount > 1) {
+            return [
+                type: 'PR 머지',
+                ref: pullNumber ? "PR #${pullNumber}" : '',
+                url: pullNumber ? githubPullUrl(pullNumber) : '',
+                actorLabel: '머지한 사람',
+                actor: author
+            ]
+        }
+
+        return [type: '다이렉트 푸쉬', ref: '', url: '', actorLabel: '커밋한 사람', actor: committer ?: author]
+    } catch (Exception ignored) {
+        return unknown
+    }
+}
+
+def notifyTeams(String status) {
+    catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+        if (!fileExists('ci/notify-teams.sh')) {
+            echo '[teams] notification skipped: ci/notify-teams.sh is unavailable before checkout completes'
+            return
+        }
+
+        long finishedAtMillis = System.currentTimeMillis()
+        long startedAtMillis = (env.DEPLOY_STARTED_AT_MILLIS ?: finishedAtMillis.toString()) as long
+        long durationSec = Math.max(0L, Math.round((finishedAtMillis - startedAtMillis) / 1000.0D))
+        def source = deploymentSource()
+
+        withCredentials([string(
+            credentialsId: 'teams-deploy-webhook-url',
+            variable: 'TEAMS_WEBHOOK_URL'
+        )]) {
+            withEnv([
+                "TEAMS_STATUS=${status}",
+                "TEAMS_STARTED_AT=${formatKstDate(startedAtMillis)}",
+                "TEAMS_FINISHED_AT=${formatKstDate(finishedAtMillis)}",
+                "TEAMS_DURATION_SEC=${durationSec}",
+                "TEAMS_JOB_NAME=${env.JOB_NAME ?: ''}",
+                "TEAMS_BUILD_NUMBER=${env.BUILD_NUMBER ?: ''}",
+                "TEAMS_BUILD_URL=${jenkinsBuildUrl()}",
+                "TEAMS_BRANCH_NAME=${env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'main'}",
+                "TEAMS_COMMIT=${env.GIT_COMMIT ?: ''}",
+                "TEAMS_DEPLOYMENT_TYPE=${source.type ?: ''}",
+                "TEAMS_DEPLOYMENT_REF=${source.ref ?: ''}",
+                "TEAMS_DEPLOYMENT_URL=${source.url ?: ''}",
+                "TEAMS_DEPLOYMENT_ACTOR_LABEL=${source.actorLabel ?: ''}",
+                "TEAMS_DEPLOYMENT_ACTOR=${source.actor ?: ''}"
+            ]) {
+                sh './ci/notify-teams.sh'
+            }
+        }
+    }
+}
+
+pipeline {
+    agent any
+    triggers { pollSCM('H/3 * * * *') }
+    options {
+        disableConcurrentBuilds()
+        timeout(time: 20, unit: 'MINUTES')
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                script {
+                    env.DEPLOY_STARTED_AT_MILLIS = System.currentTimeMillis().toString()
+                }
+                checkout scm
+            }
+        }
+        stage('Build and Test') {
+            steps { sh './ci/build.sh' }
+        }
+        stage('Deploy') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'server-password',
+                    usernameVariable: 'SSH_USER',
+                    passwordVariable: 'SSH_PASS'
+                )]) {
+                    sh './ci/deploy.sh'
+                }
+            }
+        }
+    }
+    post {
+        success { script { notifyTeams('SUCCESS') } }
+        failure { script { notifyTeams('FAILURE') } }
+        aborted { script { notifyTeams('ABORTED') } }
+        unstable { script { notifyTeams('UNSTABLE') } }
+    }
+}

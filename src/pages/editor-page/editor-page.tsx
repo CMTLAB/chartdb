@@ -6,13 +6,11 @@ import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useLocalConfig } from '@/hooks/use-local-config';
 import { FullScreenLoaderProvider } from '@/context/full-screen-spinner-context/full-screen-spinner-provider';
 import { LayoutProvider } from '@/context/layout-context/layout-provider';
-import { LocalConfigProvider } from '@/context/local-config-context/local-config-provider';
 import { StorageProvider } from '@/context/storage-context/storage-provider';
 import { ConfigProvider } from '@/context/config-context/config-provider';
 import { RedoUndoStackProvider } from '@/context/history-context/redo-undo-stack-provider';
 import { ChartDBProvider } from '@/context/chartdb-context/chartdb-provider';
 import { HistoryProvider } from '@/context/history-context/history-provider';
-import { ThemeProvider } from '@/context/theme-context/theme-provider';
 import { ReactFlowProvider } from '@xyflow/react';
 import { ExportImageProvider } from '@/context/export-image-context/export-image-provider';
 import { DialogProvider } from '@/context/dialog-context/dialog-provider';
@@ -26,6 +24,7 @@ import { useDiagramLoader } from './use-diagram-loader';
 import { DiffProvider } from '@/context/diff-context/diff-provider';
 import { TopNavbarMock } from './top-navbar/top-navbar-mock';
 import { DiagramFilterProvider } from '@/context/diagram-filter-context/diagram-filter-provider';
+import { useAuth } from '@/context/auth-context/auth-context';
 
 const OPEN_STAR_US_AFTER_SECONDS = 30;
 const SHOW_STAR_US_AGAIN_AFTER_DAYS = 1;
@@ -111,40 +110,42 @@ const EditorPageComponent: React.FC = () => {
     );
 };
 
-export const EditorPage: React.FC = () => (
-    <LocalConfigProvider>
-        <ThemeProvider>
-            <FullScreenLoaderProvider>
-                <LayoutProvider>
-                    <StorageProvider>
-                        <ConfigProvider>
-                            <RedoUndoStackProvider>
-                                <DiffProvider>
-                                    <ChartDBProvider>
-                                        <DiagramFilterProvider>
-                                            <HistoryProvider>
-                                                <ReactFlowProvider>
-                                                    <CanvasProvider>
-                                                        <ExportImageProvider>
-                                                            <AlertProvider>
-                                                                <DialogProvider>
-                                                                    <KeyboardShortcutsProvider>
-                                                                        <EditorPageComponent />
-                                                                    </KeyboardShortcutsProvider>
-                                                                </DialogProvider>
-                                                            </AlertProvider>
-                                                        </ExportImageProvider>
-                                                    </CanvasProvider>
-                                                </ReactFlowProvider>
-                                            </HistoryProvider>
-                                        </DiagramFilterProvider>
-                                    </ChartDBProvider>
-                                </DiffProvider>
-                            </RedoUndoStackProvider>
-                        </ConfigProvider>
-                    </StorageProvider>
-                </LayoutProvider>
-            </FullScreenLoaderProvider>
-        </ThemeProvider>
-    </LocalConfigProvider>
-);
+export const EditorPage: React.FC = () => {
+    const { user } = useAuth();
+
+    return (
+        <FullScreenLoaderProvider>
+            <LayoutProvider>
+                <StorageProvider>
+                    <ConfigProvider>
+                        <RedoUndoStackProvider>
+                            <DiffProvider>
+                                <ChartDBProvider
+                                    readonly={user?.role === 'VIEWER'}
+                                >
+                                    <DiagramFilterProvider>
+                                        <HistoryProvider>
+                                            <ReactFlowProvider>
+                                                <CanvasProvider>
+                                                    <ExportImageProvider>
+                                                        <AlertProvider>
+                                                            <DialogProvider>
+                                                                <KeyboardShortcutsProvider>
+                                                                    <EditorPageComponent />
+                                                                </KeyboardShortcutsProvider>
+                                                            </DialogProvider>
+                                                        </AlertProvider>
+                                                    </ExportImageProvider>
+                                                </CanvasProvider>
+                                            </ReactFlowProvider>
+                                        </HistoryProvider>
+                                    </DiagramFilterProvider>
+                                </ChartDBProvider>
+                            </DiffProvider>
+                        </RedoUndoStackProvider>
+                    </ConfigProvider>
+                </StorageProvider>
+            </LayoutProvider>
+        </FullScreenLoaderProvider>
+    );
+};

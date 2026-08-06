@@ -115,6 +115,7 @@ import {
 import { CanvasFilter } from './canvas-filter/canvas-filter';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { ShowAllButton } from './show-all-button';
+import { initialTablesLoaded } from './initial-table-load';
 import { useIsLostInCanvas } from './hooks/use-is-lost-in-canvas';
 import type { DiagramFilter } from '@/lib/domain/diagram-filter/diagram-filter';
 import { useDiagramFilter } from '@/context/diagram-filter-context/use-diagram-filter';
@@ -369,28 +370,10 @@ export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
     }, [initialTables]);
 
     useEffect(() => {
-        const initialNodes = initialTables.map((table) =>
-            tableToTableNode(table, {
-                filter,
-                databaseType,
-                filterLoading,
-                showDBViews,
-                forceShow: shouldForceShowTable(table.id),
-                isRelationshipCreatingTarget: false,
-            })
-        );
-        if (equal(initialNodes, nodes)) {
+        if (!filterLoading && initialTablesLoaded(initialTables, nodes)) {
             setIsInitialLoadingNodes(false);
         }
-    }, [
-        initialTables,
-        nodes,
-        filter,
-        databaseType,
-        filterLoading,
-        showDBViews,
-        shouldForceShowTable,
-    ]);
+    }, [initialTables, nodes, filterLoading]);
 
     useEffect(() => {
         if (!isInitialLoadingNodes) {
@@ -398,6 +381,7 @@ export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
                 fitView({
                     duration: 200,
                     padding: 0.1,
+                    minZoom: 0.4,
                     maxZoom: 0.8,
                 });
             }, 500)();
@@ -735,6 +719,7 @@ export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
                 fitView({
                     duration: 500,
                     padding: 0.1,
+                    minZoom: 0.4,
                     maxZoom: 0.8,
                 });
             }, 500)();

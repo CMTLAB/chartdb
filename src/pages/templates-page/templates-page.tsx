@@ -2,8 +2,6 @@ import React from 'react';
 import ChartDBLogo from '@/assets/logo-light.png';
 import ChartDBDarkLogo from '@/assets/logo-dark.png';
 import { useTheme } from '@/hooks/use-theme';
-import { LocalConfigProvider } from '@/context/local-config-context/local-config-provider';
-import { ThemeProvider } from '@/context/theme-context/theme-provider';
 import { Component, Star } from 'lucide-react';
 import { ListMenu } from '@/components/list-menu/list-menu';
 import { TemplateCard } from './template-card/template-card';
@@ -144,10 +142,4 @@ const TemplatesPageComponent: React.FC = () => {
     );
 };
 
-export const TemplatesPage: React.FC = () => (
-    <LocalConfigProvider>
-        <ThemeProvider>
-            <TemplatesPageComponent />
-        </ThemeProvider>
-    </LocalConfigProvider>
-);
+export const TemplatesPage: React.FC = () => <TemplatesPageComponent />;

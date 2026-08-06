@@ -12,12 +12,18 @@ import type { Area } from '@/lib/domain/area';
 import type { DBCustomType } from '@/lib/domain/db-custom-type';
 import type { DiagramFilter } from '@/lib/domain/diagram-filter/diagram-filter';
 import type { Note } from '@/lib/domain/note';
+import { useAuth } from '@/context/auth-context/auth-context';
+import { storageDatabaseName } from './storage-database';
 
 export const StorageProvider: React.FC<React.PropsWithChildren> = ({
     children,
 }) => {
+    const { user } = useAuth();
+    if (!user)
+        throw new Error('StorageProvider requires an authenticated user.');
+
     const db = useMemo(() => {
-        const dexieDB = new Dexie('ChartDB') as Dexie & {
+        const dexieDB = new Dexie(storageDatabaseName(user.id)) as Dexie & {
             diagrams: EntityTable<
                 Diagram,
                 'id' // primary key "id" (for the typings only)
@@ -251,7 +257,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             }
         });
         return dexieDB;
-    }, []);
+    }, [user.id]);
 
     const getConfig: StorageContext['getConfig'] =
         useCallback(async (): Promise<ChartDBConfig | undefined> => {

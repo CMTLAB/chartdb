@@ -26,6 +26,7 @@ export interface CanvasContext {
     fitView: (options?: {
         duration?: number;
         padding?: number;
+        minZoom?: number;
         maxZoom?: number;
     }) => void;
     setOverlapGraph: (graph: Graph<string>) => void;

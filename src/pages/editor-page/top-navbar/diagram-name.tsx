@@ -18,7 +18,8 @@ import { useDialog } from '@/hooks/use-dialog';
 export interface DiagramNameProps {}
 
 export const DiagramName: React.FC<DiagramNameProps> = () => {
-    const { diagramName, updateDiagramName, currentDiagram } = useChartDB();
+    const { diagramName, updateDiagramName, currentDiagram, readonly } =
+        useChartDB();
 
     const { t } = useTranslation();
     const [editMode, setEditMode] = useState(false);
@@ -59,11 +60,12 @@ export const DiagramName: React.FC<DiagramNameProps> = () => {
 
     const enterEditMode = useCallback(
         (event: React.MouseEvent<HTMLElement, MouseEvent>) => {
+            if (readonly) return;
             event.stopPropagation();
             setEditedDiagramName(diagramName);
             setEditMode(true);
         },
-        [diagramName]
+        [diagramName, readonly]
     );
 
     return (
@@ -72,7 +74,7 @@ export const DiagramName: React.FC<DiagramNameProps> = () => {
                 className={cn(
                     'flex flex-1 flex-row items-center justify-center px-2 py-1 whitespace-nowrap',
                     {
-                        'text-editable': !editMode,
+                        'text-editable': !editMode && !readonly,
                     }
                 )}
             >
@@ -119,7 +121,8 @@ export const DiagramName: React.FC<DiagramNameProps> = () => {
                                     <h1
                                         className={cn(
                                             labelVariants(),
-                                            'group-hover:underline max-w-[300px] truncate'
+                                            'max-w-[300px] truncate',
+                                            !readonly && 'group-hover:underline'
                                         )}
                                         onDoubleClick={(e) => {
                                             enterEditMode(e);
@@ -129,19 +132,23 @@ export const DiagramName: React.FC<DiagramNameProps> = () => {
                                     </h1>
                                 </TooltipTrigger>
                                 <TooltipContent>
-                                    {t('tool_tips.double_click_to_edit')}
+                                    {readonly
+                                        ? diagramName
+                                        : t('tool_tips.double_click_to_edit')}
                                 </TooltipContent>
                             </Tooltip>
-                            <Button
-                                variant="ghost"
-                                className="ml-1 hidden size-5 p-0 hover:bg-background/50 group-hover:flex"
-                                onClick={enterEditMode}
-                            >
-                                <Pencil
-                                    strokeWidth="1.5"
-                                    className="!size-3.5 text-slate-600 dark:text-slate-400"
-                                />
-                            </Button>
+                            {!readonly ? (
+                                <Button
+                                    variant="ghost"
+                                    className="ml-1 hidden size-5 p-0 hover:bg-background/50 group-hover:flex"
+                                    onClick={enterEditMode}
+                                >
+                                    <Pencil
+                                        strokeWidth="1.5"
+                                        className="!size-3.5 text-slate-600 dark:text-slate-400"
+                                    />
+                                </Button>
+                            ) : null}
                         </>
                     )}
                 </div>

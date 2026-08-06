@@ -28,6 +28,7 @@ import { useNavigate } from 'react-router-dom';
 import type { BaseDialogProps } from '../common/base-dialog-props';
 import { useDebounce } from '@/hooks/use-debounce';
 import { DiagramRowActionsMenu } from './diagram-row-actions-menu/diagram-row-actions-menu';
+import { useChartDB } from '@/hooks/use-chartdb';
 
 export interface OpenDiagramDialogProps extends BaseDialogProps {
     canClose?: boolean;
@@ -40,6 +41,7 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
     const { closeOpenDiagramDialog, openCreateDiagramDialog } = useDialog();
     const { t } = useTranslation();
     const { updateConfig } = useConfig();
+    const { readonly } = useChartDB();
     const navigate = useNavigate();
     const { listDiagrams } = useStorage();
     const [diagrams, setDiagrams] = useState<Diagram[]>([]);
@@ -225,17 +227,19 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                                             {diagram.tables?.length}
                                         </TableCell>
                                         <TableCell className="items-center p-0 pr-1 text-right">
-                                            <DiagramRowActionsMenu
-                                                diagram={diagram}
-                                                onOpen={() => {
-                                                    openDiagram(diagram.id);
-                                                    closeOpenDiagramDialog();
-                                                }}
-                                                numberOfDiagrams={
-                                                    diagrams.length
-                                                }
-                                                refetch={fetchDiagrams}
-                                            />
+                                            {!readonly ? (
+                                                <DiagramRowActionsMenu
+                                                    diagram={diagram}
+                                                    onOpen={() => {
+                                                        openDiagram(diagram.id);
+                                                        closeOpenDiagramDialog();
+                                                    }}
+                                                    numberOfDiagrams={
+                                                        diagrams.length
+                                                    }
+                                                    refetch={fetchDiagrams}
+                                                />
+                                            ) : null}
                                         </TableCell>
                                     </TableRow>
                                 ))}
@@ -255,23 +259,26 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                         <div />
                     )}
                     <div className="flex gap-2">
-                        <Button
-                            type="button"
-                            variant="secondary"
-                            onClick={() => {
-                                closeOpenDiagramDialog();
-                                openCreateDiagramDialog();
-                            }}
-                        >
-                            {t('open_diagram_dialog.new_database')}
-                        </Button>
+                        {!readonly ? (
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => {
+                                    closeOpenDiagramDialog();
+                                    openCreateDiagramDialog();
+                                }}
+                            >
+                                {t('open_diagram_dialog.new_database')}
+                            </Button>
+                        ) : null}
                         <DialogClose asChild>
                             <Button
                                 type="submit"
                                 disabled={!selectedDiagramId}
-                                onClick={() =>
-                                    openDiagram(selectedDiagramId ?? '')
-                                }
+                                onClick={() => {
+                                    openDiagram(selectedDiagramId ?? '');
+                                    closeOpenDiagramDialog();
+                                }}
                             >
                                 {t('open_diagram_dialog.open')}
                             </Button>

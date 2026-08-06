@@ -2,8 +2,6 @@ import React, { useCallback, useEffect } from 'react';
 import ChartDBLogo from '@/assets/logo-light.png';
 import ChartDBDarkLogo from '@/assets/logo-dark.png';
 import { useTheme } from '@/hooks/use-theme';
-import { LocalConfigProvider } from '@/context/local-config-context/local-config-provider';
-import { ThemeProvider } from '@/context/theme-context/theme-provider';
 import { Button } from '@/components/button/button';
 import { CloudDownload } from 'lucide-react';
 import { useLoaderData, useNavigate, useParams } from 'react-router-dom';
@@ -305,11 +303,7 @@ const TemplatePageComponent: React.FC = () => {
 };
 
 export const TemplatePage: React.FC = () => (
-    <LocalConfigProvider>
-        <ThemeProvider>
-            <ReactFlowProvider>
-                <TemplatePageComponent />
-            </ReactFlowProvider>
-        </ThemeProvider>
-    </LocalConfigProvider>
+    <ReactFlowProvider>
+        <TemplatePageComponent />
+    </ReactFlowProvider>
 );
