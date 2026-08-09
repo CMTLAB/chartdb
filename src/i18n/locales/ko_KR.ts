@@ -565,5 +565,5 @@ export const ko_KR: LanguageTranslation = {
 export const ko_KRMetadata: LanguageMetadata = {
     name: 'Korean',
     nativeName: '한국어',
-    code: 'ko_KR',
+    code: 'ko-KR',
 };
