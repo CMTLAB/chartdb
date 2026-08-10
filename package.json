@@ -5,15 +5,17 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
-        "build": "npm run lint && tsc -b && vite build",
+        "build": "npm run lint && npm run typecheck && npm run build:bundle",
+        "build:bundle": "vite build",
         "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
         "lint:fix": "npm run lint -- --fix",
         "preview": "vite preview",
         "prepare": "husky",
         "test": "vitest",
-        "test:ci": "vitest run --reporter=verbose --bail=1",
+        "test:ci": "vitest run --reporter=dot --silent=passed-only --no-color --bail=1",
         "test:ui": "vitest --ui",
-        "test:coverage": "vitest --coverage"
+        "test:coverage": "vitest --coverage",
+        "typecheck": "tsc -b"
     },
     "dependencies": {
         "@ai-sdk/openai": "^2.0.72",

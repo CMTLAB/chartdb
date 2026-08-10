@@ -71,8 +71,6 @@ const MandatoryOpenDialog = () => {
         closeImportDatabaseDialog: noOp,
         openTableSchemaDialog: noOp,
         closeTableSchemaDialog: noOp,
-        openStarUsDialog: noOp,
-        closeStarUsDialog: noOp,
         openExportImageDialog: noOp,
         closeExportImageDialog: noOp,
         openExportDiagramDialog: noOp,

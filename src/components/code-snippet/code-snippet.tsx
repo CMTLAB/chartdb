@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip/tooltip';
 import { useTranslation } from 'react-i18next';
 import { DarkTheme } from './themes/dark';
 import { LightTheme } from './themes/light';
+import { copyTextToClipboard } from './copy-to-clipboard';
 import './config.ts';
 
 export const Editor = lazy(() =>
@@ -95,22 +96,10 @@ export const CodeSnippet: React.FC<CodeSnippetProps> = React.memo(
         }, [code, monaco, autoScroll]);
 
         const copyToClipboard = useCallback(async () => {
-            if (!navigator?.clipboard) {
-                toast({
-                    title: t('copy_to_clipboard_toast.unsupported.title'),
-                    variant: 'destructive',
-                    description: t(
-                        'copy_to_clipboard_toast.unsupported.description'
-                    ),
-                });
-                return;
-            }
+            const copied = await copyTextToClipboard(codeToCopy ?? code);
+            setIsCopied(copied);
 
-            try {
-                await navigator.clipboard.writeText(codeToCopy ?? code);
-                setIsCopied(true);
-            } catch {
-                setIsCopied(false);
+            if (!copied) {
                 toast({
                     title: t('copy_to_clipboard_toast.failed.title'),
                     variant: 'destructive',
