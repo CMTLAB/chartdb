@@ -28,6 +28,7 @@ import {
     useKeyPress,
     SelectionMode,
     useUpdateNodeInternals,
+    useNodesInitialized,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import equal from 'fast-deep-equal';
@@ -123,6 +124,11 @@ import { filterTable } from '@/lib/domain/diagram-filter/filter';
 import { defaultSchemas } from '@/lib/data/default-schemas';
 import { useDiff } from '@/context/diff-context/use-diff';
 import { useClickAway } from 'react-use';
+import {
+    getFilterFitDecision,
+    INITIAL_VIEWPORT,
+    useInitialViewportFit,
+} from './use-initial-viewport-fit';
 
 const HIGHLIGHTED_EDGE_Z_INDEX = 1;
 const DEFAULT_EDGE_Z_INDEX = 0;
@@ -275,8 +281,9 @@ export interface CanvasProps {
 }
 
 export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
-    const { getEdge, getInternalNode, getNode } = useReactFlow();
+    const { getEdge, getInternalNode, getNode, zoomTo } = useReactFlow();
     const updateNodeInternals = useUpdateNodeInternals();
+    const nodesInitialized = useNodesInitialized();
     const [selectedTableIds, setSelectedTableIds] = useState<string[]>([]);
     const [selectedRelationshipIds, setSelectedRelationshipIds] = useState<
         string[]
@@ -305,6 +312,7 @@ export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
         updateNote,
         highlightedCustomType,
         highlightCustomTypeId,
+        diagramId,
     } = useChartDB();
     const { showSidePanel } = useLayout();
     const { effectiveTheme } = useTheme();
@@ -341,8 +349,6 @@ export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
         [checkIfNewTable]
     );
 
-    const [isInitialLoadingNodes, setIsInitialLoadingNodes] = useState(true);
-
     const [nodes, setNodes, onNodesChange] = useNodesState<NodeType>(
         initialTables.map((table) =>
             tableToTableNode(table, {
@@ -365,28 +371,17 @@ export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
         y: number;
     } | null>(null);
 
-    useEffect(() => {
-        setIsInitialLoadingNodes(true);
-    }, [initialTables]);
+    const initialViewportReady =
+        !filterLoading &&
+        nodesInitialized &&
+        initialTablesLoaded(initialTables, nodes);
 
-    useEffect(() => {
-        if (!filterLoading && initialTablesLoaded(initialTables, nodes)) {
-            setIsInitialLoadingNodes(false);
-        }
-    }, [initialTables, nodes, filterLoading]);
-
-    useEffect(() => {
-        if (!isInitialLoadingNodes) {
-            debounce(() => {
-                fitView({
-                    duration: 200,
-                    padding: 0.1,
-                    minZoom: 0.4,
-                    maxZoom: 0.8,
-                });
-            }, 500)();
-        }
-    }, [isInitialLoadingNodes, fitView]);
+    useInitialViewportFit({
+        diagramId,
+        ready: initialViewportReady,
+        zoomTo,
+        fitView,
+    });
 
     useEffect(() => {
         // Force React Flow to re-register handles for all table nodes
@@ -695,10 +690,21 @@ export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
     const prevFilter = useRef<DiagramFilter | undefined>(undefined);
     const prevShowDBViews = useRef<boolean>(showDBViews);
     useEffect(() => {
-        if (
+        const filterChanged =
             !equal(filter, prevFilter.current) ||
-            showDBViews !== prevShowDBViews.current
-        ) {
+            showDBViews !== prevShowDBViews.current;
+        const fitDecision = getFilterFitDecision(
+            initialViewportReady,
+            filterChanged
+        );
+
+        if (fitDecision === 'sync') {
+            prevFilter.current = filter;
+            prevShowDBViews.current = showDBViews;
+            return;
+        }
+
+        if (fitDecision === 'fit') {
             debounce(() => {
                 const overlappingTablesInDiagram = findOverlappingTables({
                     tables: tables.filter(
@@ -726,7 +732,15 @@ export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
             prevFilter.current = filter;
             prevShowDBViews.current = showDBViews;
         }
-    }, [filter, fitView, tables, setOverlapGraph, databaseType, showDBViews]);
+    }, [
+        filter,
+        fitView,
+        tables,
+        setOverlapGraph,
+        databaseType,
+        showDBViews,
+        initialViewportReady,
+    ]);
 
     useEffect(() => {
         const checkParentAreas = debounce(() => {
@@ -1655,6 +1669,7 @@ export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
                 onMouseMove={handleMouseMove}
             >
                 <ReactFlow
+                    defaultViewport={INITIAL_VIEWPORT}
                     onlyRenderVisibleElements
                     colorMode={effectiveTheme}
                     className={cn('nodes-animated', {

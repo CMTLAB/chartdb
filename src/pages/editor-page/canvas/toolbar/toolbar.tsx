@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback } from 'react';
 import { Card, CardContent } from '@/components/card/card';
 import {
     ZoomIn,
@@ -12,7 +12,7 @@ import {
 import { Separator } from '@/components/separator/separator';
 import { ToolbarButton } from './toolbar-button';
 import { useHistory } from '@/hooks/use-history';
-import { useOnViewportChange, useReactFlow } from '@xyflow/react';
+import { useReactFlow, useViewport } from '@xyflow/react';
 import {
     Tooltip,
     TooltipTrigger,
@@ -36,8 +36,8 @@ export interface ToolbarProps {
 export const Toolbar: React.FC<ToolbarProps> = ({ readonly }) => {
     const { t } = useTranslation();
     const { redo, undo, hasRedo, hasUndo } = useHistory();
-    const { getZoom, zoomIn, zoomOut, fitView } = useReactFlow();
-    const [zoom, setZoom] = useState<string>(convertToPercentage(getZoom()));
+    const { zoomIn, zoomOut, fitView } = useReactFlow();
+    const { zoom } = useViewport();
     const { setShowFilter, reorderTables } = useCanvas();
     const { hasActiveFilter } = useDiagramFilter();
     const { showAlert } = useAlert();
@@ -45,12 +45,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({ readonly }) => {
     const toggleFilter = useCallback(() => {
         setShowFilter((prev) => !prev);
     }, [setShowFilter]);
-
-    useOnViewportChange({
-        onChange: ({ zoom }) => {
-            setZoom(convertToPercentage(zoom));
-        },
-    });
 
     const zoomDuration = 200;
     const zoomInHandler = () => {
@@ -155,7 +149,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ readonly }) => {
                         onClick={resetZoom}
                         className="w-[60px] p-2 hover:bg-primary-foreground"
                     >
-                        {zoom}
+                        {convertToPercentage(zoom)}
                     </Button>
                     <Tooltip>
                         <TooltipTrigger asChild>
