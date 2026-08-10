@@ -1,33 +1,22 @@
-export const copyTextToClipboard = async (text: string): Promise<boolean> => {
+export type CopyTextResult = 'copied' | 'manual' | 'failed';
+
+export const copyTextToClipboard = async (
+    text: string,
+    manualCopyMessage: string
+): Promise<CopyTextResult> => {
     try {
-        if (navigator.clipboard) {
+        if (window.isSecureContext && navigator.clipboard) {
             await navigator.clipboard.writeText(text);
-            return true;
+            return 'copied';
         }
     } catch {
-        // Insecure origins and denied permissions fall back to execCommand.
+        // Permission-denied Clipboard API calls use the manual fallback.
     }
 
-    const previousFocus = document.activeElement;
-    const textarea = document.createElement('textarea');
-    textarea.dataset.clipboardFallback = '';
-    textarea.value = text;
-    textarea.readOnly = true;
-    textarea.style.position = 'fixed';
-    textarea.style.left = '-9999px';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-
     try {
-        textarea.focus();
-        textarea.select();
-        return document.execCommand('copy');
+        window.prompt(manualCopyMessage, text);
+        return 'manual';
     } catch {
-        return false;
-    } finally {
-        textarea.remove();
-        if (previousFocus instanceof HTMLElement) {
-            previousFocus.focus();
-        }
+        return 'failed';
     }
 };
