@@ -96,10 +96,17 @@ export const CodeSnippet: React.FC<CodeSnippetProps> = React.memo(
         }, [code, monaco, autoScroll]);
 
         const copyToClipboard = useCallback(async () => {
-            const copied = await copyTextToClipboard(codeToCopy ?? code);
+            const shortcut = navigator.userAgent.includes('Mac')
+                ? '⌘+C'
+                : 'Ctrl+C';
+            const result = await copyTextToClipboard(
+                codeToCopy ?? code,
+                `${t('copy_to_clipboard')}: ${shortcut} → Enter`
+            );
+            const copied = result === 'copied';
             setIsCopied(copied);
 
-            if (!copied) {
+            if (result === 'failed') {
                 toast({
                     title: t('copy_to_clipboard_toast.failed.title'),
                     variant: 'destructive',
