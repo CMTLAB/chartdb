@@ -1924,8 +1924,7 @@ export const ChartDBProvider: React.FC<
     const updateDiagramData: ChartDBContext['updateDiagramData'] = useCallback(
         async (diagram, options) => {
             const st = options?.forceUpdateStorage ? storageDB : db;
-            await st.deleteDiagram(diagram.id);
-            await st.addDiagram({ diagram });
+            await st.replaceDiagram({ diagram });
             loadDiagramFromData(diagram);
         },
         [db, storageDB, loadDiagramFromData]
