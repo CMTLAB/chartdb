@@ -3,6 +3,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseType, type DBTable, type Diagram } from '@/lib/domain';
+import type { DatabaseMetadata } from '@/lib/data/import-metadata/metadata-types/database-metadata';
+import type { SelectedTable } from '@/lib/data/import-metadata/filter-metadata';
 import { ImportDatabaseDialog } from './import-database-dialog';
 
 const mocks = vi.hoisted(() => ({
@@ -74,6 +76,76 @@ vi.mock('../common/import-database/import-database', () => ({
     ),
 }));
 
+interface SelectTablesTestProps {
+    initialSelectedTables?: SelectedTable[];
+    databaseMetadata?: DatabaseMetadata;
+    allowEmptySelection?: boolean;
+    onImport: (input: {
+        selectedTables?: SelectedTable[];
+        databaseMetadata?: DatabaseMetadata;
+    }) => Promise<void>;
+}
+
+vi.mock('../common/select-tables/select-tables', () => ({
+    SelectTables: ({
+        initialSelectedTables,
+        databaseMetadata,
+        allowEmptySelection,
+        onImport,
+    }: SelectTablesTestProps) => {
+        const selectedTables = initialSelectedTables?.filter(
+            ({ schema, table, type }) =>
+                type === 'table'
+                    ? databaseMetadata?.tables.some(
+                          (metadataTable) =>
+                              metadataTable.schema === schema &&
+                              metadataTable.table === table
+                      )
+                    : databaseMetadata?.views.some(
+                          (view) =>
+                              view.schema === schema && view.view_name === table
+                      )
+        );
+
+        return (
+            <div>
+                <span>테이블 선택</span>
+                <span>
+                    {selectedTables?.map(({ table }) => table).join(',')}
+                </span>
+                <button
+                    onClick={() =>
+                        onImport({
+                            selectedTables: [
+                                {
+                                    schema: 'public',
+                                    table: 'users',
+                                    type: 'table',
+                                },
+                            ],
+                            databaseMetadata,
+                        })
+                    }
+                >
+                    선택 반영
+                </button>
+                {allowEmptySelection && (
+                    <button
+                        onClick={() =>
+                            onImport({
+                                selectedTables: [],
+                                databaseMetadata,
+                            })
+                        }
+                    >
+                        전체 해제 반영
+                    </button>
+                )}
+            </div>
+        );
+    },
+}));
+
 const table = (overrides: Partial<DBTable>): DBTable => ({
     id: 'table',
     name: 'table',
@@ -102,10 +174,152 @@ const diagram = (tables: DBTable[]): Diagram => ({
     updatedAt: new Date('2026-08-01'),
 });
 
+const metadata = (): DatabaseMetadata => ({
+    database_name: 'database',
+    version: '1',
+    tables: [
+        { schema: 'public', table: 'users' },
+        { schema: 'public', table: 'audit' },
+    ],
+    views: [],
+    columns: [],
+    indexes: [],
+    fk_info: [],
+    pk_info: [],
+});
+
 describe('ImportDatabaseDialog Smart Query refresh', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.loadDatabaseMetadata.mockReturnValue({});
+        mocks.loadDatabaseMetadata.mockReturnValue(metadata());
+    });
+
+    it('shows matching current tables for selection before loading a refresh', async () => {
+        const user = userEvent.setup();
+        const currentDiagram = diagram([
+            table({ id: 'users-current', name: 'users' }),
+            table({ id: 'legacy-current', name: 'legacy' }),
+        ]);
+        mocks.useChartDB.mockReturnValue({
+            addTables: vi.fn(),
+            addRelationships: vi.fn(),
+            diagramName: 'ERD',
+            databaseType: DatabaseType.POSTGRESQL,
+            updateDatabaseType: vi.fn(),
+            tables: currentDiagram.tables,
+            currentDiagram,
+            updateDiagramData: vi.fn(),
+        });
+
+        render(
+            <ImportDatabaseDialog
+                dialog={{ open: true }}
+                databaseType={DatabaseType.POSTGRESQL}
+                importMethods={['query']}
+                initialImportMethod="query"
+                refreshExistingDiagram
+            />
+        );
+        await user.click(screen.getByRole('button', { name: '파일 선택' }));
+        await user.click(screen.getByRole('button', { name: '가져오기' }));
+
+        expect(screen.getByText('테이블 선택')).toBeInTheDocument();
+        expect(screen.getByText('users')).toBeInTheDocument();
+        expect(mocks.loadFromDatabaseMetadata).not.toHaveBeenCalled();
+        expect(mocks.showAlert).not.toHaveBeenCalled();
+    });
+
+    it('filters a refresh to the selected tables', async () => {
+        const user = userEvent.setup();
+        const currentDiagram = diagram([
+            table({ id: 'users-current', name: 'users' }),
+            table({ id: 'legacy-current', name: 'legacy' }),
+        ]);
+        mocks.useChartDB.mockReturnValue({
+            addTables: vi.fn(),
+            addRelationships: vi.fn(),
+            diagramName: 'ERD',
+            databaseType: DatabaseType.POSTGRESQL,
+            updateDatabaseType: vi.fn(),
+            tables: currentDiagram.tables,
+            currentDiagram,
+            updateDiagramData: vi.fn(),
+        });
+        mocks.loadFromDatabaseMetadata.mockResolvedValue(
+            diagram([table({ id: 'users-fresh', name: 'users' })])
+        );
+
+        render(
+            <ImportDatabaseDialog
+                dialog={{ open: true }}
+                databaseType={DatabaseType.POSTGRESQL}
+                importMethods={['query']}
+                initialImportMethod="query"
+                refreshExistingDiagram
+            />
+        );
+        await user.click(screen.getByRole('button', { name: '파일 선택' }));
+        await user.click(screen.getByRole('button', { name: '가져오기' }));
+        await user.click(screen.getByRole('button', { name: '선택 반영' }));
+
+        await waitFor(() =>
+            expect(mocks.loadFromDatabaseMetadata).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    databaseMetadata: expect.objectContaining({
+                        tables: [expect.objectContaining({ table: 'users' })],
+                    }),
+                })
+            )
+        );
+    });
+
+    it('uses empty metadata to summarize removal after clearing a refresh selection', async () => {
+        const user = userEvent.setup();
+        const currentDiagram = diagram([
+            table({ id: 'users-current', name: 'users' }),
+        ]);
+        mocks.useChartDB.mockReturnValue({
+            addTables: vi.fn(),
+            addRelationships: vi.fn(),
+            diagramName: 'ERD',
+            databaseType: DatabaseType.POSTGRESQL,
+            updateDatabaseType: vi.fn(),
+            tables: currentDiagram.tables,
+            currentDiagram,
+            updateDiagramData: vi.fn(),
+        });
+        mocks.loadFromDatabaseMetadata.mockResolvedValue(diagram([]));
+
+        render(
+            <ImportDatabaseDialog
+                dialog={{ open: true }}
+                databaseType={DatabaseType.POSTGRESQL}
+                importMethods={['query']}
+                initialImportMethod="query"
+                refreshExistingDiagram
+            />
+        );
+        await user.click(screen.getByRole('button', { name: '파일 선택' }));
+        await user.click(screen.getByRole('button', { name: '가져오기' }));
+        await user.click(
+            screen.getByRole('button', { name: '전체 해제 반영' })
+        );
+
+        await waitFor(() =>
+            expect(mocks.loadFromDatabaseMetadata).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    databaseMetadata: expect.objectContaining({
+                        tables: [],
+                        views: [],
+                    }),
+                })
+            )
+        );
+        expect(mocks.showAlert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                description: '테이블 추가 0개, 변경 0개, 삭제 1개입니다.',
+            })
+        );
     });
 
     it('shows the change summary before replacing the current diagram', async () => {
@@ -146,6 +360,7 @@ describe('ImportDatabaseDialog Smart Query refresh', () => {
         );
         await user.click(screen.getByRole('button', { name: '파일 선택' }));
         await user.click(screen.getByRole('button', { name: '가져오기' }));
+        await user.click(screen.getByRole('button', { name: '선택 반영' }));
 
         await waitFor(() => expect(mocks.showAlert).toHaveBeenCalledOnce());
         expect(updateDiagramData).not.toHaveBeenCalled();
@@ -196,6 +411,7 @@ describe('ImportDatabaseDialog Smart Query refresh', () => {
         );
         await user.click(screen.getByRole('button', { name: '파일 선택' }));
         await user.click(screen.getByRole('button', { name: '가져오기' }));
+        await user.click(screen.getByRole('button', { name: '선택 반영' }));
 
         await waitFor(() => expect(mocks.showAlert).toHaveBeenCalledOnce());
         expect(mocks.showAlert.mock.calls[0][0]).toMatchObject({

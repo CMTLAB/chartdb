@@ -17,6 +17,9 @@ import { importDBMLToDiagram } from '@/lib/dbml/dbml-import/dbml-import';
 import type { ImportMethod } from '@/lib/import-method/import-method';
 import { prepareDiagramRefresh } from '@/lib/data/import-metadata/refresh-diagram';
 import { useAlert } from '@/context/alert-context/alert-context';
+import { SelectTables } from '../common/select-tables/select-tables';
+import type { SelectedTable } from '@/lib/data/import-metadata/filter-metadata';
+import { filterMetadataByTables } from '@/lib/data/import-metadata/filter-metadata';
 
 export interface ImportDatabaseDialogProps extends BaseDialogProps {
     databaseType: DatabaseType;
@@ -26,6 +29,11 @@ export interface ImportDatabaseDialogProps extends BaseDialogProps {
 }
 
 const defaultImportMethods: ImportMethod[] = ['query', 'ddl', 'dbml'];
+
+interface ImportSelection {
+    selectedTables?: SelectedTable[];
+    databaseMetadata?: DatabaseMetadata;
+}
 
 const refreshCopy = {
     en: {
@@ -84,6 +92,8 @@ export const ImportDatabaseDialog: React.FC<ImportDatabaseDialogProps> = ({
     const [databaseEdition, setDatabaseEdition] = useState<
         DatabaseEdition | undefined
     >();
+    const [parsedMetadata, setParsedMetadata] = useState<DatabaseMetadata>();
+    const [isSelectingTables, setIsSelectingTables] = useState(false);
 
     useEffect(() => {
         setDatabaseEdition(undefined);
@@ -94,153 +104,193 @@ export const ImportDatabaseDialog: React.FC<ImportDatabaseDialogProps> = ({
         setDatabaseEdition(undefined);
         setScriptResult('');
         setImportMethod(initialImportMethod ?? importMethods[0]);
+        setParsedMetadata(undefined);
+        setIsSelectingTables(false);
     }, [dialog.open, importMethods, initialImportMethod]);
 
-    const importDatabase = useCallback(async () => {
-        let diagram: Diagram | undefined;
+    const importDatabase = useCallback(
+        async (selection: ImportSelection = {}) => {
+            const { selectedTables, databaseMetadata } = selection;
 
-        try {
-            if (importMethod === 'ddl') {
-                diagram = await sqlImportToDiagram({
-                    sqlContent: scriptResult,
-                    sourceDatabaseType: databaseType,
-                    targetDatabaseType: databaseType,
-                });
-            } else if (importMethod === 'dbml') {
-                diagram = await importDBMLToDiagram(scriptResult, {
-                    databaseType,
-                });
-            } else {
-                const databaseMetadata: DatabaseMetadata =
-                    loadDatabaseMetadata(scriptResult);
-
-                diagram = await loadFromDatabaseMetadata({
-                    databaseType,
-                    databaseMetadata,
-                    databaseEdition:
-                        databaseEdition?.trim().length === 0
-                            ? undefined
-                            : databaseEdition,
-                });
+            if (
+                refreshExistingDiagram &&
+                importMethod === 'query' &&
+                !databaseMetadata
+            ) {
+                try {
+                    setParsedMetadata(loadDatabaseMetadata(scriptResult));
+                    setIsSelectingTables(true);
+                } catch {
+                    showAlert({
+                        title: refreshText.failedTitle,
+                        description: refreshText.failedDescription,
+                        closeLabel: refreshText.close,
+                    });
+                }
+                return;
             }
-        } catch (error) {
-            if (!refreshExistingDiagram) throw error;
-            showAlert({
-                title: refreshText.failedTitle,
-                description: refreshText.failedDescription,
-                closeLabel: refreshText.close,
-            });
-            return;
-        }
 
-        if (refreshExistingDiagram) {
-            const refresh = prepareDiagramRefresh({
-                currentDiagram,
-                refreshedDiagram: diagram,
-            });
+            let diagram: Diagram | undefined;
 
-            if (!refresh.summary.hasChanges) {
+            try {
+                if (importMethod === 'ddl') {
+                    diagram = await sqlImportToDiagram({
+                        sqlContent: scriptResult,
+                        sourceDatabaseType: databaseType,
+                        targetDatabaseType: databaseType,
+                    });
+                } else if (importMethod === 'dbml') {
+                    diagram = await importDBMLToDiagram(scriptResult, {
+                        databaseType,
+                    });
+                } else {
+                    let metadata =
+                        databaseMetadata ?? loadDatabaseMetadata(scriptResult);
+                    if (selectedTables) {
+                        metadata = filterMetadataByTables({
+                            metadata,
+                            selectedTables,
+                        });
+                    }
+
+                    diagram = await loadFromDatabaseMetadata({
+                        databaseType,
+                        databaseMetadata: metadata,
+                        databaseEdition:
+                            databaseEdition?.trim().length === 0
+                                ? undefined
+                                : databaseEdition,
+                    });
+                }
+            } catch (error) {
+                if (!refreshExistingDiagram) throw error;
                 showAlert({
-                    title: refreshText.noChangesTitle,
-                    description: refreshText.noChangesDescription,
+                    title: refreshText.failedTitle,
+                    description: refreshText.failedDescription,
                     closeLabel: refreshText.close,
                 });
                 return;
             }
 
-            showAlert({
-                title: refreshText.confirmTitle,
-                description: i18n.language?.startsWith('ko')
-                    ? `테이블 추가 ${refresh.summary.addedTables}개, 변경 ${refresh.summary.changedTables}개, 삭제 ${refresh.summary.removedTables}개입니다.`
-                    : `${refresh.summary.addedTables} added, ${refresh.summary.changedTables} changed, ${refresh.summary.removedTables} removed tables.`,
-                actionLabel: refreshText.apply,
-                closeLabel: refreshText.cancel,
-                onAction: async () => {
-                    try {
-                        await updateDiagramData(refresh.diagram, {
-                            forceUpdateStorage: true,
-                        });
-                        closeImportDatabaseDialog();
-                    } catch {
-                        showAlert({
-                            title: refreshText.failedTitle,
-                            description: refreshText.failedDescription,
-                            closeLabel: refreshText.close,
-                        });
-                    }
-                },
-            });
-            return;
-        }
+            if (refreshExistingDiagram) {
+                const refresh = prepareDiagramRefresh({
+                    currentDiagram,
+                    refreshedDiagram: diagram,
+                });
 
-        // Skip if nothing to import
-        const newTablesNumber = diagram.tables?.length ?? 0;
-        const newRelationshipsNumber = diagram.relationships?.length ?? 0;
-        if (newTablesNumber === 0 && newRelationshipsNumber === 0) {
-            return;
-        }
+                if (!refresh.summary.hasChanges) {
+                    showAlert({
+                        title: refreshText.noChangesTitle,
+                        description: refreshText.noChangesDescription,
+                        closeLabel: refreshText.close,
+                    });
+                    return;
+                }
 
-        // Close dialog immediately to prevent re-render blocking
-        closeImportDatabaseDialog();
-
-        // Calculate position offset for new tables to avoid overlap
-        let offsetX = 0;
-        if (existingTables.length > 0) {
-            // Find the rightmost table
-            const rightmostTable = existingTables.reduce((max, table) => {
-                const tableRight = table.x + (table.width ?? 250);
-                const maxRight = max.x + (max.width ?? 250);
-                return tableRight > maxRight ? table : max;
-            });
-            // Position new tables 150px to the right of the rightmost table
-            offsetX = rightmostTable.x + (rightmostTable.width ?? 250) + 150;
-        }
-
-        // Apply offset to imported tables
-        const positionedTables =
-            diagram.tables?.map((table) => ({
-                ...table,
-                x: table.x + offsetX,
-            })) ?? [];
-
-        // Use queueMicrotask to defer work after dialog closes but before next paint
-        queueMicrotask(async () => {
-            // Add tables and relationships
-            await Promise.all([
-                addTables(positionedTables, { updateHistory: false }),
-                addRelationships(diagram.relationships ?? [], {
-                    updateHistory: false,
-                }),
-            ]);
-
-            if (currentDatabaseType === DatabaseType.GENERIC) {
-                await updateDatabaseType(databaseType);
+                showAlert({
+                    title: refreshText.confirmTitle,
+                    description: i18n.language?.startsWith('ko')
+                        ? `테이블 추가 ${refresh.summary.addedTables}개, 변경 ${refresh.summary.changedTables}개, 삭제 ${refresh.summary.removedTables}개입니다.`
+                        : `${refresh.summary.addedTables} added, ${refresh.summary.changedTables} changed, ${refresh.summary.removedTables} removed tables.`,
+                    actionLabel: refreshText.apply,
+                    closeLabel: refreshText.cancel,
+                    onAction: async () => {
+                        try {
+                            await updateDiagramData(refresh.diagram, {
+                                forceUpdateStorage: true,
+                            });
+                            closeImportDatabaseDialog();
+                        } catch {
+                            showAlert({
+                                title: refreshText.failedTitle,
+                                description: refreshText.failedDescription,
+                                closeLabel: refreshText.close,
+                            });
+                        }
+                    },
+                });
+                return;
             }
 
-            // Reset undo/redo stacks
-            resetRedoStack();
-            resetUndoStack();
-        });
-    }, [
-        importMethod,
-        databaseEdition,
-        currentDatabaseType,
-        updateDatabaseType,
-        databaseType,
-        scriptResult,
-        addRelationships,
-        addTables,
-        resetRedoStack,
-        resetUndoStack,
-        closeImportDatabaseDialog,
-        existingTables,
-        refreshExistingDiagram,
-        currentDiagram,
-        updateDiagramData,
-        showAlert,
-        i18n.language,
-        refreshText,
-    ]);
+            // Skip if nothing to import
+            const newTablesNumber = diagram.tables?.length ?? 0;
+            const newRelationshipsNumber = diagram.relationships?.length ?? 0;
+            if (newTablesNumber === 0 && newRelationshipsNumber === 0) {
+                return;
+            }
+
+            // Close dialog immediately to prevent re-render blocking
+            closeImportDatabaseDialog();
+
+            // Calculate position offset for new tables to avoid overlap
+            let offsetX = 0;
+            if (existingTables.length > 0) {
+                // Find the rightmost table
+                const rightmostTable = existingTables.reduce((max, table) => {
+                    const tableRight = table.x + (table.width ?? 250);
+                    const maxRight = max.x + (max.width ?? 250);
+                    return tableRight > maxRight ? table : max;
+                });
+                // Position new tables 150px to the right of the rightmost table
+                offsetX =
+                    rightmostTable.x + (rightmostTable.width ?? 250) + 150;
+            }
+
+            // Apply offset to imported tables
+            const positionedTables =
+                diagram.tables?.map((table) => ({
+                    ...table,
+                    x: table.x + offsetX,
+                })) ?? [];
+
+            // Use queueMicrotask to defer work after dialog closes but before next paint
+            queueMicrotask(async () => {
+                // Add tables and relationships
+                await Promise.all([
+                    addTables(positionedTables, { updateHistory: false }),
+                    addRelationships(diagram.relationships ?? [], {
+                        updateHistory: false,
+                    }),
+                ]);
+
+                if (currentDatabaseType === DatabaseType.GENERIC) {
+                    await updateDatabaseType(databaseType);
+                }
+
+                // Reset undo/redo stacks
+                resetRedoStack();
+                resetUndoStack();
+            });
+        },
+        [
+            importMethod,
+            databaseEdition,
+            currentDatabaseType,
+            updateDatabaseType,
+            databaseType,
+            scriptResult,
+            addRelationships,
+            addTables,
+            resetRedoStack,
+            resetUndoStack,
+            closeImportDatabaseDialog,
+            existingTables,
+            refreshExistingDiagram,
+            currentDiagram,
+            updateDiagramData,
+            showAlert,
+            i18n.language,
+            refreshText,
+        ]
+    );
+
+    const currentTablesForSelection: SelectedTable[] = existingTables.map(
+        (table) => ({
+            schema: table.schema,
+            table: table.name,
+            type: table.isView ? 'view' : 'table',
+        })
+    );
 
     return (
         <Dialog
@@ -255,23 +305,35 @@ export const ImportDatabaseDialog: React.FC<ImportDatabaseDialogProps> = ({
                 className="flex max-h-screen w-full flex-col md:max-w-[900px]"
                 showClose
             >
-                <ImportDatabase
-                    databaseType={databaseType}
-                    databaseEdition={databaseEdition}
-                    setDatabaseEdition={setDatabaseEdition}
-                    onImport={importDatabase}
-                    scriptResult={scriptResult}
-                    setScriptResult={setScriptResult}
-                    keepDialogAfterImport
-                    title={
-                        refreshExistingDiagram
-                            ? refreshText.title
-                            : t('import_database_dialog.title', { diagramName })
-                    }
-                    importMethod={importMethod}
-                    setImportMethod={setImportMethod}
-                    importMethods={importMethods}
-                />
+                {isSelectingTables ? (
+                    <SelectTables
+                        databaseMetadata={parsedMetadata}
+                        initialSelectedTables={currentTablesForSelection}
+                        allowEmptySelection={refreshExistingDiagram}
+                        onImport={importDatabase}
+                        onBack={() => setIsSelectingTables(false)}
+                    />
+                ) : (
+                    <ImportDatabase
+                        databaseType={databaseType}
+                        databaseEdition={databaseEdition}
+                        setDatabaseEdition={setDatabaseEdition}
+                        onImport={importDatabase}
+                        scriptResult={scriptResult}
+                        setScriptResult={setScriptResult}
+                        keepDialogAfterImport
+                        title={
+                            refreshExistingDiagram
+                                ? refreshText.title
+                                : t('import_database_dialog.title', {
+                                      diagramName,
+                                  })
+                        }
+                        importMethod={importMethod}
+                        setImportMethod={setImportMethod}
+                        importMethods={importMethods}
+                    />
+                )}
             </DialogContent>
         </Dialog>
     );

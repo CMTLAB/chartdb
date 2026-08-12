@@ -61,7 +61,7 @@ export const generateTableKey = ({
 }: {
     schemaName: string | null | undefined;
     tableName: string;
-}) => `${schemaNameToDomainSchemaName(schemaName) ?? ''}.${tableName}`;
+}) => `${schemaNameToDomainSchemaName(schemaName) ?? ''}\0${tableName}`;
 
 export const adjustTablePositions = ({
     relationships: inputRelationships,

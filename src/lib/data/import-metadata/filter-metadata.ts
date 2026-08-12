@@ -1,5 +1,6 @@
 import type { DatabaseMetadata } from './metadata-types/database-metadata';
 import { schemaNameToDomainSchemaName } from '@/lib/domain/db-schema';
+import { generateTableKey } from '@/lib/domain/db-table';
 
 export interface SelectedTable {
     schema?: string | null;
@@ -27,27 +28,41 @@ export function filterMetadataByTables({
     const selectedTableSet = new Set(
         selectedTables
             .filter((st) => st.type === 'table')
-            .map((st) => `${st.schema}.${st.table}`)
+            .map((st) =>
+                generateTableKey({
+                    schemaName: st.schema,
+                    tableName: st.table,
+                })
+            )
     );
     const selectedViewSet = new Set(
         selectedTables
             .filter((st) => st.type === 'view')
-            .map((st) => `${st.schema}.${st.table}`)
+            .map((st) =>
+                generateTableKey({
+                    schemaName: st.schema,
+                    tableName: st.table,
+                })
+            )
     );
 
     // Filter tables
     const filteredTables = metadata.tables.filter((table) => {
-        const schema = schemaNameToDomainSchemaName(table.schema) ?? '';
-        const tableId = `${schema}.${table.table}`;
-        return selectedTableSet.has(tableId);
+        const tableId = generateTableKey({
+            schemaName: table.schema,
+            tableName: table.table,
+        });
+        return selectedTableSet.has(tableId) || selectedViewSet.has(tableId);
     });
 
     // Filter views - include views that were explicitly selected
     const filteredViews =
         metadata.views?.filter((view) => {
-            const schema = schemaNameToDomainSchemaName(view.schema) ?? '';
             const viewName = view.view_name ?? '';
-            const viewId = `${schema}.${viewName}`;
+            const viewId = generateTableKey({
+                schemaName: view.schema,
+                tableName: viewName,
+            });
             return selectedViewSet.has(viewId);
         }) || [];
 

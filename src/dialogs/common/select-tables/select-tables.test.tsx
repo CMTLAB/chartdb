@@ -45,6 +45,138 @@ const metadata: DatabaseMetadata = {
 };
 
 describe('SelectTables', () => {
+    it('keeps the default table selection when no initial selection is supplied', () => {
+        render(
+            <SelectTables
+                databaseMetadata={{
+                    ...metadata,
+                    tables: [{ schema: 'public', table: 'active_users' }],
+                    views: [{ schema: 'public', view_name: 'active_users' }],
+                }}
+                onImport={vi.fn()}
+                onBack={vi.fn()}
+            />
+        );
+
+        expect(
+            screen.getByRole('button', { name: 'Import 1 Tables' })
+        ).toBeEnabled();
+    });
+
+    it('does not preselect a current table when the latest object is a view', () => {
+        const viewMetadata: DatabaseMetadata = {
+            ...metadata,
+            tables: [{ schema: 'public', table: 'active_users' }],
+            views: [{ schema: 'public', view_name: 'active_users' }],
+        };
+
+        render(
+            <SelectTables
+                allowEmptySelection
+                databaseMetadata={viewMetadata}
+                initialSelectedTables={[
+                    {
+                        schema: 'public',
+                        table: 'active_users',
+                        type: 'table',
+                    },
+                ]}
+                onImport={vi.fn()}
+                onBack={vi.fn()}
+            />
+        );
+
+        expect(
+            screen.getByRole('button', { name: 'Import 0 Tables' })
+        ).toBeEnabled();
+    });
+
+    it('preselects a current view when the latest object is still a view', () => {
+        const viewMetadata: DatabaseMetadata = {
+            ...metadata,
+            tables: [{ schema: 'public', table: 'active_users' }],
+            views: [{ schema: 'public', view_name: 'active_users' }],
+        };
+
+        render(
+            <SelectTables
+                databaseMetadata={viewMetadata}
+                initialSelectedTables={[
+                    {
+                        schema: 'public',
+                        table: 'active_users',
+                        type: 'view',
+                    },
+                ]}
+                onImport={vi.fn()}
+                onBack={vi.fn()}
+            />
+        );
+
+        expect(
+            screen.getByRole('button', { name: 'Import 1 Tables' })
+        ).toBeEnabled();
+    });
+
+    it('distinguishes dots in schema names from dots in table names', () => {
+        render(
+            <SelectTables
+                databaseMetadata={{
+                    ...metadata,
+                    tables: [
+                        { schema: 'a.b', table: 'c' },
+                        { schema: 'a', table: 'b.c' },
+                    ],
+                }}
+                initialSelectedTables={[
+                    { schema: 'a.b', table: 'c', type: 'table' },
+                ]}
+                onImport={vi.fn()}
+                onBack={vi.fn()}
+            />
+        );
+
+        expect(
+            within(
+                screen.getByText('c').closest('div.flex.items-center.gap-3')!
+            ).getByRole('checkbox')
+        ).toBeChecked();
+        expect(
+            within(
+                screen.getByText('b.c').closest('div.flex.items-center.gap-3')!
+            ).getByRole('checkbox')
+        ).not.toBeChecked();
+    });
+
+    it('keeps empty selection disabled unless explicitly allowed', () => {
+        const { rerender } = render(
+            <SelectTables
+                databaseMetadata={metadata}
+                initialSelectedTables={[]}
+                onImport={vi.fn()}
+                onBack={vi.fn()}
+            />
+        );
+
+        expect(
+            screen.getByRole('button', { name: 'Import 0 Tables' })
+        ).toBeDisabled();
+
+        rerender(
+            <SelectTables
+                allowEmptySelection
+                databaseMetadata={metadata}
+                initialSelectedTables={[]}
+                onImport={vi.fn()}
+                onBack={vi.fn()}
+            />
+        );
+
+        expect(
+            screen.getByRole('button', { name: 'Import 0 Tables' })
+        ).toBeEnabled();
+    });
+
     it('uses the supplied initial table selection', () => {
         render(
             <SelectTables
