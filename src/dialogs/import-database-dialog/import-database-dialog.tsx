@@ -15,20 +15,51 @@ import type { BaseDialogProps } from '../common/base-dialog-props';
 import { sqlImportToDiagram } from '@/lib/data/sql-import';
 import { importDBMLToDiagram } from '@/lib/dbml/dbml-import/dbml-import';
 import type { ImportMethod } from '@/lib/import-method/import-method';
+import { prepareDiagramRefresh } from '@/lib/data/import-metadata/refresh-diagram';
+import { useAlert } from '@/context/alert-context/alert-context';
 
 export interface ImportDatabaseDialogProps extends BaseDialogProps {
     databaseType: DatabaseType;
     importMethods?: ImportMethod[];
     initialImportMethod?: ImportMethod;
+    refreshExistingDiagram?: boolean;
 }
 
 const defaultImportMethods: ImportMethod[] = ['query', 'ddl', 'dbml'];
+
+const refreshCopy = {
+    en: {
+        title: 'Refresh Current Diagram with Smart Query',
+        confirmTitle: 'Apply Smart Query Changes?',
+        apply: 'Apply Changes',
+        cancel: 'Cancel',
+        noChangesTitle: 'No Changes Found',
+        noChangesDescription:
+            'The Smart Query result matches the current diagram.',
+        failedTitle: 'Unable to Refresh Diagram',
+        failedDescription: 'Check the Smart Query JSON file and try again.',
+        close: 'Close',
+    },
+    ko: {
+        title: 'Smart Query로 현재 다이어그램 갱신',
+        confirmTitle: 'Smart Query 변경사항을 반영할까요?',
+        apply: '변경사항 반영',
+        cancel: '취소',
+        noChangesTitle: '변경사항 없음',
+        noChangesDescription: 'Smart Query 결과가 현재 다이어그램과 같습니다.',
+        failedTitle: '다이어그램을 갱신할 수 없음',
+        failedDescription:
+            'Smart Query JSON 파일을 확인한 뒤 다시 시도해주세요.',
+        close: '닫기',
+    },
+} as const;
 
 export const ImportDatabaseDialog: React.FC<ImportDatabaseDialogProps> = ({
     dialog,
     databaseType,
     importMethods = defaultImportMethods,
     initialImportMethod,
+    refreshExistingDiagram = false,
 }) => {
     const [importMethod, setImportMethod] = useState<ImportMethod>(
         initialImportMethod ?? importMethods[0]
@@ -41,10 +72,15 @@ export const ImportDatabaseDialog: React.FC<ImportDatabaseDialogProps> = ({
         databaseType: currentDatabaseType,
         updateDatabaseType,
         tables: existingTables,
+        currentDiagram,
+        updateDiagramData,
     } = useChartDB();
     const [scriptResult, setScriptResult] = useState('');
     const { resetRedoStack, resetUndoStack } = useRedoUndoStack();
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const refreshText =
+        refreshCopy[i18n.language?.startsWith('ko') ? 'ko' : 'en'];
+    const { showAlert } = useAlert();
     const [databaseEdition, setDatabaseEdition] = useState<
         DatabaseEdition | undefined
     >();
@@ -63,28 +99,78 @@ export const ImportDatabaseDialog: React.FC<ImportDatabaseDialogProps> = ({
     const importDatabase = useCallback(async () => {
         let diagram: Diagram | undefined;
 
-        if (importMethod === 'ddl') {
-            diagram = await sqlImportToDiagram({
-                sqlContent: scriptResult,
-                sourceDatabaseType: databaseType,
-                targetDatabaseType: databaseType,
-            });
-        } else if (importMethod === 'dbml') {
-            diagram = await importDBMLToDiagram(scriptResult, {
-                databaseType,
-            });
-        } else {
-            const databaseMetadata: DatabaseMetadata =
-                loadDatabaseMetadata(scriptResult);
+        try {
+            if (importMethod === 'ddl') {
+                diagram = await sqlImportToDiagram({
+                    sqlContent: scriptResult,
+                    sourceDatabaseType: databaseType,
+                    targetDatabaseType: databaseType,
+                });
+            } else if (importMethod === 'dbml') {
+                diagram = await importDBMLToDiagram(scriptResult, {
+                    databaseType,
+                });
+            } else {
+                const databaseMetadata: DatabaseMetadata =
+                    loadDatabaseMetadata(scriptResult);
 
-            diagram = await loadFromDatabaseMetadata({
-                databaseType,
-                databaseMetadata,
-                databaseEdition:
-                    databaseEdition?.trim().length === 0
-                        ? undefined
-                        : databaseEdition,
+                diagram = await loadFromDatabaseMetadata({
+                    databaseType,
+                    databaseMetadata,
+                    databaseEdition:
+                        databaseEdition?.trim().length === 0
+                            ? undefined
+                            : databaseEdition,
+                });
+            }
+        } catch (error) {
+            if (!refreshExistingDiagram) throw error;
+            showAlert({
+                title: refreshText.failedTitle,
+                description: refreshText.failedDescription,
+                closeLabel: refreshText.close,
             });
+            return;
+        }
+
+        if (refreshExistingDiagram) {
+            const refresh = prepareDiagramRefresh({
+                currentDiagram,
+                refreshedDiagram: diagram,
+            });
+
+            if (!refresh.summary.hasChanges) {
+                showAlert({
+                    title: refreshText.noChangesTitle,
+                    description: refreshText.noChangesDescription,
+                    closeLabel: refreshText.close,
+                });
+                return;
+            }
+
+            showAlert({
+                title: refreshText.confirmTitle,
+                description: i18n.language?.startsWith('ko')
+                    ? `테이블 추가 ${refresh.summary.addedTables}개, 변경 ${refresh.summary.changedTables}개, 삭제 ${refresh.summary.removedTables}개입니다.`
+                    : `${refresh.summary.addedTables} added, ${refresh.summary.changedTables} changed, ${refresh.summary.removedTables} removed tables.`,
+                actionLabel: refreshText.apply,
+                closeLabel: refreshText.cancel,
+                onAction: async () => {
+                    try {
+                        await updateDiagramData(refresh.diagram, {
+                            forceUpdateStorage: true,
+                        });
+                        closeImportDatabaseDialog();
+                    } catch {
+                        showAlert({
+                            title: refreshText.failedTitle,
+                            description: refreshText.failedDescription,
+                            closeLabel: refreshText.close,
+                        });
+                    }
+                },
+            });
+            return;
         }
 
         // Skip if nothing to import
@@ -148,6 +234,12 @@ export const ImportDatabaseDialog: React.FC<ImportDatabaseDialogProps> = ({
         resetUndoStack,
         closeImportDatabaseDialog,
         existingTables,
+        refreshExistingDiagram,
+        currentDiagram,
+        updateDiagramData,
+        showAlert,
+        i18n.language,
+        refreshText,
     ]);
 
     return (
@@ -171,7 +263,11 @@ export const ImportDatabaseDialog: React.FC<ImportDatabaseDialogProps> = ({
                     scriptResult={scriptResult}
                     setScriptResult={setScriptResult}
                     keepDialogAfterImport
-                    title={t('import_database_dialog.title', { diagramName })}
+                    title={
+                        refreshExistingDiagram
+                            ? refreshText.title
+                            : t('import_database_dialog.title', { diagramName })
+                    }
                     importMethod={importMethod}
                     setImportMethod={setImportMethod}
                     importMethods={importMethods}
