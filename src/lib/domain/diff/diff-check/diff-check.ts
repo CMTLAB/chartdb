@@ -801,6 +801,9 @@ function compareFieldProperties({
         'precision',
         'increment',
         'isArray',
+        'default',
+        'collation',
+        'check',
     ];
 
     const changedAttributes: FieldDiffAttribute[] = [];
@@ -884,6 +887,15 @@ function compareFieldProperties({
             normalizeBoolean(newField.isArray)
     ) {
         changedAttributes.push('isArray');
+    }
+
+    for (const attribute of ['default', 'collation', 'check'] as const) {
+        if (
+            attributesToCheck.includes(attribute) &&
+            oldField[attribute] !== newField[attribute]
+        ) {
+            changedAttributes.push(attribute);
+        }
     }
 
     if (changedAttributes.length > 0) {
