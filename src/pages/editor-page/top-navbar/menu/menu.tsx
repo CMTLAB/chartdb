@@ -204,6 +204,20 @@ export const Menu: React.FC<MenuProps> = () => {
                                     >
                                         .json
                                     </MenubarItem>
+                                    <MenubarItem
+                                        onClick={() =>
+                                            openImportDatabaseDialog({
+                                                databaseType,
+                                                importMethods: ['query'],
+                                                initialImportMethod: 'query',
+                                                refreshExistingDiagram: true,
+                                            })
+                                        }
+                                    >
+                                        {i18n.language?.startsWith('ko')
+                                            ? 'Smart Query로 갱신'
+                                            : 'Refresh with Smart Query'}
+                                    </MenubarItem>
                                     <MenubarSeparator />
                                     <MenubarItem
                                         onClick={() =>

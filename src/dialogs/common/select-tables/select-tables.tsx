@@ -38,6 +38,8 @@ export interface SelectTablesProps {
     }) => Promise<void>;
     onBack: () => void;
     isLoading?: boolean;
+    initialSelectedTables?: SelectedTable[];
+    allowEmptySelection?: boolean;
 }
 
 const TABLES_PER_PAGE = 10;
@@ -55,6 +57,8 @@ export const SelectTables: React.FC<SelectTablesProps> = ({
     onImport,
     onBack,
     isLoading = false,
+    initialSelectedTables,
+    allowEmptySelection = false,
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -71,11 +75,13 @@ export const SelectTables: React.FC<SelectTablesProps> = ({
         databaseMetadata?.tables.forEach((table) => {
             const schema = schemaNameToDomainSchemaName(table.schema);
             const tableName = table.table;
-
-            const key = `table:${generateTableKey({ tableName, schemaName: schema })}`;
+            const tableKey = generateTableKey({
+                tableName,
+                schemaName: schema,
+            });
 
             tables.push({
-                key,
+                key: `table:${tableKey}`,
                 schema,
                 tableName,
                 fullName: schema ? `${schema}.${tableName}` : tableName,
@@ -122,6 +128,30 @@ export const SelectTables: React.FC<SelectTablesProps> = ({
 
     // Initialize selectedTables with all tables (not views) if less than 100 tables
     const [selectedTables, setSelectedTables] = useState<Set<string>>(() => {
+        if (initialSelectedTables) {
+            const availableKeys = new Set(allTables.map((table) => table.key));
+            return new Set(
+                initialSelectedTables
+                    .map(({ schema, table, type = 'table' }) => {
+                        const objectKey = generateTableKey({
+                            tableName: table,
+                            schemaName: schemaNameToDomainSchemaName(schema),
+                        });
+                        const key = `${type}:${objectKey}`;
+
+                        return type === 'table' &&
+                            availableKeys.has(`view:${objectKey}`)
+                            ? null
+                            : key;
+                    })
+                    .filter(
+                        (key): key is string =>
+                            key !== null && availableKeys.has(key)
+                    )
+                    .slice(0, MAX_TABLES_IN_DIAGRAM)
+            );
+        }
+
         const tables = allTables.filter((t) => t.type === 'table');
         if (tables.length < MAX_TABLES_IN_DIAGRAM) {
             return new Set(tables.map((t) => t.key));
@@ -663,7 +693,10 @@ export const SelectTables: React.FC<SelectTablesProps> = ({
 
                 <Button
                     onClick={handleConfirm}
-                    disabled={selectedTables.size === 0 || isImporting}
+                    disabled={
+                        (!allowEmptySelection && selectedTables.size === 0) ||
+                        isImporting
+                    }
                     className="bg-pink-500 text-white hover:bg-pink-600"
                 >
                     {isImporting ? (

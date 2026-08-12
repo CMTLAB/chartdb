@@ -881,12 +881,35 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         [db]
     );
 
+    const replaceDiagram: StorageContext['replaceDiagram'] = useCallback(
+        async ({ diagram }) => {
+            await db.transaction(
+                'rw',
+                [
+                    db.diagrams,
+                    db.db_tables,
+                    db.db_relationships,
+                    db.db_dependencies,
+                    db.areas,
+                    db.db_custom_types,
+                    db.notes,
+                ],
+                async () => {
+                    await deleteDiagram(diagram.id);
+                    await addDiagram({ diagram });
+                }
+            );
+        },
+        [addDiagram, db, deleteDiagram]
+    );
+
     return (
         <storageContext.Provider
             value={{
                 getConfig,
                 updateConfig,
                 addDiagram,
+                replaceDiagram,
                 listDiagrams,
                 getDiagram,
                 updateDiagram,

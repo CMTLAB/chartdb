@@ -17,7 +17,10 @@ export type FieldDiffAttribute =
     | 'precision'
     | 'scale'
     | 'increment'
-    | 'isArray';
+    | 'isArray'
+    | 'default'
+    | 'collation'
+    | 'check';
 
 export const fieldDiffAttributeSchema: z.ZodType<FieldDiffAttribute> = z.union([
     z.literal('name'),
@@ -30,6 +33,10 @@ export const fieldDiffAttributeSchema: z.ZodType<FieldDiffAttribute> = z.union([
     z.literal('precision'),
     z.literal('scale'),
     z.literal('increment'),
+    z.literal('isArray'),
+    z.literal('default'),
+    z.literal('collation'),
+    z.literal('check'),
 ]);
 
 export interface FieldDiffAdded<T = DBField> {

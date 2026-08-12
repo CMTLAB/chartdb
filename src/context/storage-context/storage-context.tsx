@@ -25,6 +25,7 @@ export interface StorageContext {
 
     // Diagram operations
     addDiagram: (params: { diagram: Diagram }) => Promise<void>;
+    replaceDiagram: (params: { diagram: Diagram }) => Promise<void>;
     listDiagrams: (options?: {
         includeTables?: boolean;
         includeRelationships?: boolean;
@@ -163,6 +164,7 @@ export const storageInitialValue: StorageContext = {
     deleteDiagramFilter: emptyFn,
 
     addDiagram: emptyFn,
+    replaceDiagram: emptyFn,
     listDiagrams: emptyFn,
     getDiagram: emptyFn,
     updateDiagram: emptyFn,

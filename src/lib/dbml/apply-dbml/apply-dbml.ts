@@ -200,12 +200,16 @@ const updateTables = ({
     targetTables,
     sourceTables,
     defaultDatabaseSchema,
+    matchTablesBySchemaExactly,
+    preserveTargetSchemaProperties,
 }: {
     targetTables: DBTable[] | undefined;
     sourceTables: DBTable[] | undefined;
     objectKeysToIdsMap: Record<string, string>;
     sourceIdToDataMap: SourceIdToDataMap;
     defaultDatabaseSchema?: string;
+    matchTablesBySchemaExactly?: boolean;
+    preserveTargetSchemaProperties?: boolean;
 }): { tables: DBTable[]; idMappings: IdMappings } => {
     if (!targetTables)
         return { tables: [], idMappings: { tables: {}, fields: {} } };
@@ -227,7 +231,7 @@ const updateTables = ({
         let sourceTable = sourceTablesByKey.get(targetKey);
 
         // If no match and target has a schema, try without schema
-        if (!sourceTable && targetTable.schema) {
+        if (!matchTablesBySchemaExactly && !sourceTable && targetTable.schema) {
             const noSchemaKey = createObjectKeyFromTable({
                 ...targetTable,
                 schema: undefined,
@@ -236,7 +240,11 @@ const updateTables = ({
         }
 
         // If still no match, try with default schema
-        if (!sourceTable && defaultDatabaseSchema) {
+        if (
+            !matchTablesBySchemaExactly &&
+            !sourceTable &&
+            defaultDatabaseSchema
+        ) {
             if (!targetTable.schema) {
                 // If target table has no schema, try matching with default schema
                 const defaultKey = createObjectKeyFromTable({
@@ -341,7 +349,9 @@ const updateTables = ({
                 // Semantic match - keep target's id and createdAt, use source's name
                 return {
                     ...targetIndex,
-                    name: sourceIndexBySemantic.name,
+                    name: preserveTargetSchemaProperties
+                        ? targetIndex.name
+                        : sourceIndexBySemantic.name,
                     id: sourceIndexBySemantic.id,
                     createdAt: sourceIndexBySemantic.createdAt,
                 };
@@ -405,7 +415,8 @@ const updateCustomTypes = (
 const updateRelationships = (
     targetRelationships: DBRelationship[] | undefined,
     sourceRelationships: DBRelationship[] | undefined,
-    idMappings: IdMappings
+    idMappings: IdMappings,
+    preserveTargetSchemaProperties?: boolean
 ): DBRelationship[] => {
     // If target has no relationships, return empty array (relationships were removed)
     if (!targetRelationships || targetRelationships.length === 0) return [];
@@ -484,6 +495,27 @@ const updateRelationships = (
 
         if (targetRel) {
             matchedTargetRelIds.add(targetRel.id);
+            if (preserveTargetSchemaProperties) {
+                resultRelationships.push({
+                    ...targetRel,
+                    id: sourceRel.id,
+                    createdAt: sourceRel.createdAt,
+                    sourceTableId:
+                        idMappings.tables[targetRel.sourceTableId] ??
+                        targetRel.sourceTableId,
+                    targetTableId:
+                        idMappings.tables[targetRel.targetTableId] ??
+                        targetRel.targetTableId,
+                    sourceFieldId:
+                        idMappings.fields[targetRel.sourceFieldId] ??
+                        targetRel.sourceFieldId,
+                    targetFieldId:
+                        idMappings.fields[targetRel.targetFieldId] ??
+                        targetRel.targetFieldId,
+                });
+                return;
+            }
+
             // Preserve source relationship but update cardinalities from target
             // If the relationship is matched in reverse direction, swap the cardinalities
             const result: DBRelationship = {
@@ -556,11 +588,10 @@ const updateDependencies = (
     idMappings: IdMappings
 ): DBDependency[] => {
     if (!targetDependencies) return [];
-    if (!sourceDependencies) return targetDependencies;
 
     return targetDependencies.map((targetDep) => {
         // Find matching source dependency
-        const sourceDep = sourceDependencies.find((srcDep) => {
+        const sourceDep = sourceDependencies?.find((srcDep) => {
             const srcTableId = idMappings.tables[targetDep.tableId];
             const srcDependentTableId =
                 idMappings.tables[targetDep.dependentTableId];
@@ -575,6 +606,7 @@ const updateDependencies = (
             return {
                 ...targetDep,
                 id: sourceDep.id,
+                createdAt: sourceDep.createdAt,
                 tableId:
                     idMappings.tables[targetDep.tableId] || targetDep.tableId,
                 dependentTableId:
@@ -615,9 +647,13 @@ const updateIndexFieldReferences = (
 export const applyDBMLChanges = ({
     sourceDiagram,
     targetDiagram,
+    matchTablesBySchemaExactly,
+    preserveTargetSchemaProperties,
 }: {
     sourceDiagram: Diagram;
     targetDiagram: Diagram;
+    matchTablesBySchemaExactly?: boolean;
+    preserveTargetSchemaProperties?: boolean;
 }): Diagram => {
     // Step 1: Build mappings from source diagram
     const { objectKeysToIdsMap, sourceIdToDataMap } =
@@ -630,6 +666,8 @@ export const applyDBMLChanges = ({
         objectKeysToIdsMap,
         sourceIdToDataMap,
         defaultDatabaseSchema: defaultSchemas[sourceDiagram.databaseType],
+        matchTablesBySchemaExactly,
+        preserveTargetSchemaProperties,
     });
 
     // Step 3: Update all other entities functionally
@@ -648,7 +686,8 @@ export const applyDBMLChanges = ({
     const updatedRelationships = updateRelationships(
         targetDiagram.relationships,
         sourceDiagram.relationships,
-        idMappings
+        idMappings,
+        preserveTargetSchemaProperties
     );
 
     const updatedDependencies = updateDependencies(
