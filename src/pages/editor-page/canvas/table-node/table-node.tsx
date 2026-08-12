@@ -25,6 +25,7 @@ import {
     SquarePlus,
     SquareMinus,
     View,
+    MessageCircleMore,
 } from 'lucide-react';
 import { Label } from '@/components/label/label';
 import {
@@ -606,6 +607,25 @@ export const TableNode: React.FC<NodeProps<TableNodeType>> = React.memo(
                             </Button>
                         </div>
                     </div>
+                    {table.comments ? (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div
+                                    role="note"
+                                    aria-label="Table comment"
+                                    className="flex items-start gap-1.5 border-t bg-slate-100 px-3 py-2 text-muted-foreground dark:bg-slate-900"
+                                >
+                                    <MessageCircleMore className="mt-0.5 size-3.5 shrink-0" />
+                                    <span className="line-clamp-2 whitespace-pre-wrap break-words text-xs italic">
+                                        {table.comments}
+                                    </span>
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs whitespace-pre-wrap break-words">
+                                {table.comments}
+                            </TooltipContent>
+                        </Tooltip>
+                    ) : null}
                     <div
                         className="transition-[max-height] duration-200 ease-in-out"
                         style={{

@@ -48,6 +48,9 @@ export const preserveSharedLayout = (freshDiagram, existingDiagram) => {
                 merged[key] = existingTable[key];
             }
         }
+        if (!freshTable.comments && existingTable.comments) {
+            merged.comments = existingTable.comments;
+        }
         return merged;
     });
 

@@ -59,3 +59,26 @@ test('metadata refresh keeps the fresh diagram when no prior layout exists', () 
 
     assert.equal(preserveSharedLayout(fresh, null), fresh);
 });
+
+test('metadata refresh keeps manual comments only when metadata has none', () => {
+    const existing = {
+        tables: [
+            table('manual', { comments: 'Manual note' }),
+            table('empty', { comments: 'Empty fallback' }),
+            table('database', { comments: 'Old note' }),
+        ],
+    };
+    const fresh = {
+        tables: [
+            table('manual'),
+            table('empty', { comments: '' }),
+            table('database', { comments: 'Database note' }),
+        ],
+    };
+
+    const merged = preserveSharedLayout(fresh, existing);
+
+    assert.equal(merged.tables[0].comments, 'Manual note');
+    assert.equal(merged.tables[1].comments, 'Empty fallback');
+    assert.equal(merged.tables[2].comments, 'Database note');
+});
