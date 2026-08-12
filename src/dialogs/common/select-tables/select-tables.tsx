@@ -38,6 +38,7 @@ export interface SelectTablesProps {
     }) => Promise<void>;
     onBack: () => void;
     isLoading?: boolean;
+    initialSelectedTables?: SelectedTable[];
 }
 
 const TABLES_PER_PAGE = 10;
@@ -55,6 +56,7 @@ export const SelectTables: React.FC<SelectTablesProps> = ({
     onImport,
     onBack,
     isLoading = false,
+    initialSelectedTables,
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -122,6 +124,23 @@ export const SelectTables: React.FC<SelectTablesProps> = ({
 
     // Initialize selectedTables with all tables (not views) if less than 100 tables
     const [selectedTables, setSelectedTables] = useState<Set<string>>(() => {
+        if (initialSelectedTables) {
+            const availableKeys = new Set(allTables.map((table) => table.key));
+            return new Set(
+                initialSelectedTables
+                    .map(
+                        ({ schema, table, type = 'table' }) =>
+                            `${type}:${generateTableKey({
+                                tableName: table,
+                                schemaName:
+                                    schemaNameToDomainSchemaName(schema),
+                            })}`
+                    )
+                    .filter((key) => availableKeys.has(key))
+                    .slice(0, MAX_TABLES_IN_DIAGRAM)
+            );
+        }
+
         const tables = allTables.filter((t) => t.type === 'table');
         if (tables.length < MAX_TABLES_IN_DIAGRAM) {
             return new Set(tables.map((t) => t.key));
