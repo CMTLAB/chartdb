@@ -75,6 +75,13 @@ ChartDB is currently in Public Beta. Star and watch this repository to get notif
 
 Use the [cloud version](https://app.chartdb.io?ref=github_readme_2) or deploy locally:
 
+Install and select the Node.js version from `.nvmrc` before running npm commands:
+
+```bash
+nvm install
+nvm use
+```
+
 ### How To Use
 
 ```bash
