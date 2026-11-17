@@ -2,6 +2,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+expected_node_version=$(<.nvmrc)
+actual_node_version=$(node --version)
+if [[ "$actual_node_version" != "$expected_node_version" ]]; then
+    printf '[build] Node.js %s is required (.nvmrc), found %s\n' \
+        "$expected_node_version" "$actual_node_version" >&2
+    exit 1
+fi
+
 export CI=true
 export NO_COLOR=1
 

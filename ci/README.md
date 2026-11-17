@@ -31,8 +31,10 @@ Pipeline이 명시적인 건너뜀 메시지를 출력합니다. checkout 실패
 
 ## 3. Jenkins Agent 사전 준비
 
-Node.js 24, npm, Git, `ssh`, `scp`, `sshpass`를 설치합니다. 검증된 서버 호스트
-키를 Jenkins 서비스 계정에 등록하며 호스트 키 검사를 비활성화하지 않습니다.
+`.nvmrc`에 지정된 Node.js v24.19.0과 npm, Git, `ssh`, `scp`, `sshpass`를
+설치합니다. Jenkins 서비스 계정의 `PATH`에서 `node --version`이 `.nvmrc`와
+일치해야 빌드가 시작됩니다. 검증된 서버 호스트 키를 Jenkins 서비스 계정에
+등록하며 호스트 키 검사를 비활성화하지 않습니다.
 
 ```bash
 install -d -m 700 ~/.ssh
@@ -246,14 +248,14 @@ RELEASE_TAG="$RELEASE_TAG" docker compose \
 
 ## 11. 외부 레지스트리 장애 대응
 
-서버는 `node:24-alpine`과 `nginx:stable-alpine`을 기반으로 이미지를 빌드합니다.
+서버는 `node:24.19.0-alpine`과 `nginx:stable-alpine`을 기반으로 이미지를 빌드합니다.
 공개 레지스트리에 접근할 수 없다면, 접근이 허용된 머신에서 정확히 이 두
 태그를 미리 준비합니다.
 
 ```bash
-docker pull node:24-alpine
+docker pull node:24.19.0-alpine
 docker pull nginx:stable-alpine
-docker save node:24-alpine nginx:stable-alpine | gzip > chartdb-base-images.tar.gz
+docker save node:24.19.0-alpine nginx:stable-alpine | gzip > chartdb-base-images.tar.gz
 ```
 
 승인된 경로로 아카이브를 전송한 뒤 서버에서 실행합니다.
