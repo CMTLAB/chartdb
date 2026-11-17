@@ -31,10 +31,16 @@ Pipeline이 명시적인 건너뜀 메시지를 출력합니다. checkout 실패
 
 ## 3. Jenkins Agent 사전 준비
 
-`.nvmrc`에 지정된 Node.js v24.19.0과 npm, Git, `ssh`, `scp`, `sshpass`를
-설치합니다. Jenkins 서비스 계정의 `PATH`에서 `node --version`이 `.nvmrc`와
-일치해야 빌드가 시작됩니다. 검증된 서버 호스트 키를 Jenkins 서비스 계정에
-등록하며 호스트 키 검사를 비활성화하지 않습니다.
+Git, `ssh`, `scp`, `sshpass`와 Teams 알림에 사용할 Node.js를 설치합니다.
+빌드 단계는 `.nvmrc`와 같은 버전이 `PATH`에 있으면 그대로 사용합니다.
+다른 버전이 설치된 Linux x86_64·ARM64 에이전트에서는 `nodejs.org`의 공식
+배포본을 받아 SHA-256을 확인한 뒤 빌드에 사용합니다. 이 경우 에이전트에
+`curl`, `tar`, `sha256sum`과 `nodejs.org` HTTPS 접근이 필요합니다.
+프런트엔드 번들은 `NODE_OPTIONS`가 비어 있으면 Dockerfile과 동일하게 Node.js
+힙 상한을 4GB로 설정합니다.
+
+검증된 서버 호스트 키를 Jenkins 서비스 계정에 등록하며 호스트 키 검사를
+비활성화하지 않습니다.
 
 ```bash
 install -d -m 700 ~/.ssh
