@@ -119,7 +119,7 @@ pipeline {
             }
         }
         stage('Build and Test') {
-            steps { sh './ci/build.sh' }
+            steps { sh 'bash ci/jenkins-build.sh' }
         }
         stage('Deploy') {
             steps {

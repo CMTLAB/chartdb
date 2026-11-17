@@ -38,7 +38,8 @@ run_step 'frontend dependencies' env HUSKY=0 npm ci --no-audit --no-fund --logle
 run_step 'frontend tests' npm run test:ci
 run_step 'frontend lint' npm run lint
 run_step 'frontend typecheck' npm run typecheck
-run_step 'frontend bundle' npm run build:bundle -- --logLevel warn
+run_step 'frontend bundle' env NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" \
+    npm run build:bundle -- --logLevel warn
 run_step 'frontend bundle check' node ci/check-bundle.mjs
 
 run_step 'access-server dependencies' npm --prefix publish-server ci --no-audit --no-fund --loglevel=error
